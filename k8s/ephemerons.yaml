@@ -1,0 +1,95 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ephemerons.qualified.io
+spec:
+  group: qualified.io
+  names:
+    kind: Ephemeron
+    plural: ephemerons
+    shortNames:
+      - eph
+      - ephs
+    singular: ephemeron
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns: []
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: "Auto-generated derived type for EphemeronSpec via `CustomResource`"
+          properties:
+            spec:
+              properties:
+                command:
+                  description: Optionally specify the command to use.
+                  items:
+                    type: string
+                  nullable: true
+                  type: array
+                expires:
+                  description: The date and time to kill this service on.
+                  format: date-time
+                  type: string
+                image:
+                  description: The image to use.
+                  type: string
+                port:
+                  description: The port to use.
+                  maximum: 65535.0
+                  minimum: 1.0
+                  type: integer
+              required:
+                - expires
+                - image
+                - port
+              type: object
+            status:
+              nullable: true
+              properties:
+                conditions:
+                  items:
+                    properties:
+                      lastTransitionTime:
+                        description: Last time the condition transitioned from one status to another.
+                        format: date-time
+                        type: string
+                      status:
+                        default: Unknown
+                        description: Status of the condition.
+                        enum:
+                          - Unknown
+                          - "True"
+                          - "False"
+                        type: string
+                      type:
+                        description: Type of condition.
+                        pattern: "^([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]$"
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                observedGeneration:
+                  description: The last reconciled generation.
+                  format: int64
+                  minimum: 0.0
+                  type: integer
+              required:
+                - observedGeneration
+              type: object
+          required:
+            - spec
+          title: Ephemeron
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+

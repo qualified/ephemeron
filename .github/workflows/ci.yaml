@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+      # Install and start k3s with k3d.
+      # Do this before building so we don't need to wait much for the LoadBalancer.
+      - uses: nolar/setup-k3d-k3s@v1
+        with:
+          version: v1.20
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      # Run minimal example test
+      - run: bash tests/test-example.sh
+        timeout-minutes: 5
+      # - name: cargo test
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: test
+      - name: cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+      - name: cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
