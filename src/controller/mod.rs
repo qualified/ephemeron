@@ -4,9 +4,7 @@ use chrono::Utc;
 use futures::StreamExt;
 use k8s_openapi::{
     api::{
-        core::v1::{
-            Container, ContainerPort, Endpoints, Pod, PodSpec, Service, ServicePort, ServiceSpec,
-        },
+        core::v1::{Endpoints, Pod, Service, ServicePort, ServiceSpec},
         networking::v1::{
             HTTPIngressPath, HTTPIngressRuleValue, Ingress, IngressBackend, IngressRule,
             IngressServiceBackend, IngressSpec, ServiceBackendPort,
@@ -29,21 +27,16 @@ use tracing::{debug, trace, warn};
 
 use super::{Ephemeron, EphemeronStatus};
 mod conditions;
+mod pod;
 
 const PROJECT_NAME: &str = "ephemeron";
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("Failed to create pod: {}", source))]
-    CreatePod { source: kube::Error },
-
     #[snafu(display("Failed to create service: {}", source))]
     CreateService { source: kube::Error },
 
     #[snafu(display("Failed to create ingress: {}", source))]
     CreateIngress { source: kube::Error },
-
-    #[snafu(display("Failed to get god: {}", source))]
-    GetPod { source: kube::Error },
 
     #[snafu(display("Failed to get service: {}", source))]
     GetService { source: kube::Error },
@@ -59,6 +52,9 @@ pub enum Error {
 
     #[snafu(display("Failed to annotate host information: {}", source))]
     HostAnnotation { source: kube::Error },
+
+    #[snafu(display("Failed reconcile pod: {}", source))]
+    ReconcilePod { source: pod::Error },
 
     #[snafu(display("Failed update condition: {}", source))]
     UpdateCondition { source: conditions::Error },
@@ -137,7 +133,10 @@ async fn update_status(
     if let Some(action) = delete_expired(&eph, ctx.clone()).await? {
         return Ok(action);
     }
-    if let Some(action) = reconcile_pod(&eph, ctx.clone()).await? {
+    if let Some(action) = pod::reconcile(&eph, ctx.clone())
+        .await
+        .context(ReconcilePod)?
+    {
         return Ok(action);
     }
     if let Some(action) = reconcile_service(&eph, ctx.clone()).await? {
@@ -185,55 +184,6 @@ async fn delete_expired(
     return Ok(Some(ReconcilerAction {
         requeue_after: None,
     }));
-}
-
-async fn reconcile_pod(
-    eph: &Ephemeron,
-    ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
-    let name = Meta::name(eph);
-    let client = ctx.get_ref().client.clone();
-
-    let pods: Api<Pod> = Api::namespaced(client.clone(), NS);
-    match pods.get(&name).await {
-        Ok(pod) => {
-            if !eph.is_pod_ready() && pod_is_ready(&pod) {
-                conditions::set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(true))
-                    .await
-                    .context(UpdateCondition)?;
-                Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                }))
-            } else {
-                Ok(None)
-            }
-        }
-
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            conditions::set_pod_ready(&eph, client.clone(), Some(false))
-                .await
-                .context(UpdateCondition)?;
-            conditions::set_available(&eph, client.clone(), Some(false))
-                .await
-                .context(UpdateCondition)?;
-            let pod = build_pod(&eph);
-            match pods.create(&PostParams::default(), &pod).await {
-                Ok(_) => Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                })),
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Pod already exists");
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
-                Err(err) => Err(Error::CreatePod { source: err }),
-            }
-        }
-
-        // Unexpected error
-        Err(e) => Err(Error::GetPod { source: e }),
-    }
 }
 
 async fn reconcile_service(
@@ -353,36 +303,6 @@ async fn reconcile_endpoints(
     }
 }
 
-fn build_pod(eph: &Ephemeron) -> Pod {
-    let name = Meta::name(eph);
-    Pod {
-        metadata: ObjectMeta {
-            name: Some(name.clone()),
-            namespace: Some(NS.into()),
-            owner_references: Some(vec![to_owner_reference(eph)]),
-            labels: Some(make_common_labels(&name)),
-            ..ObjectMeta::default()
-        },
-        spec: Some(PodSpec {
-            containers: vec![Container {
-                name: "container".into(),
-                image: Some(eph.spec.image.clone()),
-                command: eph.spec.command.clone(),
-                ports: Some(vec![ContainerPort {
-                    container_port: eph.spec.port,
-                    ..ContainerPort::default()
-                }]),
-                ..Container::default()
-            }],
-            restart_policy: Some("Always".into()),
-            // Don't inject information about services.
-            enable_service_links: Some(false),
-            ..PodSpec::default()
-        }),
-        ..Pod::default()
-    }
-}
-
 fn build_service(eph: &Ephemeron) -> Service {
     let name = Meta::name(eph);
     Service {
@@ -466,13 +386,4 @@ fn to_owner_reference(eph: &Ephemeron) -> OwnerReference {
         controller: Some(true),
         block_owner_deletion: Some(true),
     }
-}
-
-fn pod_is_ready(pod: &Pod) -> bool {
-    pod.status
-        .as_ref()
-        .and_then(|s| s.conditions.as_ref())
-        .map_or(false, |cs| {
-            cs.iter().any(|c| c.type_ == "Ready" && c.status == "True")
-        })
 }
