@@ -24,7 +24,7 @@ pub enum Error {
     #[snafu(display("Failed to get service: {}", source))]
     GetService { source: kube::Error },
 
-    #[snafu(display("Failed update condition: {}", source))]
+    #[snafu(display("Failed to update condition: {}", source))]
     UpdateCondition { source: conditions::Error },
 }
 
