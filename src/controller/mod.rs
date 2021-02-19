@@ -75,13 +75,13 @@ struct ContextData {
     domain: String,
 }
 
-#[tracing::instrument(skip(eph, ctx), level = "debug")]
+#[tracing::instrument(skip(eph, ctx), level = "trace")]
 async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
     if let Some(conditions) = eph.status.as_ref().map(|s| &s.conditions) {
         trace!("conditions: {:?}", conditions);
     }
 
-    if let Some(action) = expiry::delete_expired(&eph, ctx.clone())
+    if let Some(action) = expiry::reconcile(&eph, ctx.clone())
         .await
         .context(DeleteExpired)?
     {

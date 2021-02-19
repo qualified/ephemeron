@@ -19,7 +19,8 @@ pub enum Error {
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Delete the resource if it's expired.
-pub(super) async fn delete_expired(
+#[tracing::instrument(skip(eph, ctx), level = "trace")]
+pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
 ) -> Result<Option<ReconcilerAction>> {
