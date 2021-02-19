@@ -105,6 +105,8 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
 
 ### Web API
 
+> DO NOT EXPOSE THIS TO PUBLIC
+
 <details>
 <summary>Routes</summary>
 
