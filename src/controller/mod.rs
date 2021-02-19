@@ -4,13 +4,13 @@ use chrono::Utc;
 use futures::StreamExt;
 use k8s_openapi::{
     api::{
-        core::v1::{Endpoints, Pod, Service, ServicePort, ServiceSpec},
+        core::v1::{Endpoints, Pod, Service},
         networking::v1::{
             HTTPIngressPath, HTTPIngressRuleValue, Ingress, IngressBackend, IngressRule,
             IngressServiceBackend, IngressSpec, ServiceBackendPort,
         },
     },
-    apimachinery::pkg::{apis::meta::v1::OwnerReference, util::intstr::IntOrString},
+    apimachinery::pkg::apis::meta::v1::OwnerReference,
     Resource,
 };
 use kube::{
@@ -28,18 +28,13 @@ use tracing::{debug, trace, warn};
 use super::{Ephemeron, EphemeronStatus};
 mod conditions;
 mod pod;
+mod service;
 
 const PROJECT_NAME: &str = "ephemeron";
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("Failed to create service: {}", source))]
-    CreateService { source: kube::Error },
-
     #[snafu(display("Failed to create ingress: {}", source))]
     CreateIngress { source: kube::Error },
-
-    #[snafu(display("Failed to get service: {}", source))]
-    GetService { source: kube::Error },
 
     #[snafu(display("Failed to get ingress: {}", source))]
     GetIngress { source: kube::Error },
@@ -55,6 +50,9 @@ pub enum Error {
 
     #[snafu(display("Failed reconcile pod: {}", source))]
     ReconcilePod { source: pod::Error },
+
+    #[snafu(display("Failed reconcile service: {}", source))]
+    ReconcileService { source: service::Error },
 
     #[snafu(display("Failed update condition: {}", source))]
     UpdateCondition { source: conditions::Error },
@@ -139,7 +137,10 @@ async fn update_status(
     {
         return Ok(action);
     }
-    if let Some(action) = reconcile_service(&eph, ctx.clone()).await? {
+    if let Some(action) = service::reconcile(&eph, ctx.clone())
+        .await
+        .context(ReconcileService)?
+    {
         return Ok(action);
     }
     if let Some(action) = reconcile_ingress(&eph, ctx.clone()).await? {
@@ -184,38 +185,6 @@ async fn delete_expired(
     return Ok(Some(ReconcilerAction {
         requeue_after: None,
     }));
-}
-
-async fn reconcile_service(
-    eph: &Ephemeron,
-    ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
-    let name = Meta::name(eph);
-    let client = ctx.get_ref().client.clone();
-
-    let svcs: Api<Service> = Api::namespaced(client.clone(), NS);
-    match svcs.get(&name).await {
-        Ok(_) => Ok(None),
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            debug!("Creating Service");
-            let svc = build_service(&eph);
-            match svcs.create(&PostParams::default(), &svc).await {
-                Ok(_) => Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                })),
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Service already exists");
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
-                Err(err) => Err(Error::CreateService { source: err }),
-            }
-        }
-
-        // Unexpected error
-        Err(e) => Err(Error::GetService { source: e }),
-    }
 }
 
 async fn reconcile_ingress(
@@ -300,34 +269,6 @@ async fn reconcile_endpoints(
         }
 
         Err(err) => Err(Error::GetEndpoints { source: err }),
-    }
-}
-
-fn build_service(eph: &Ephemeron) -> Service {
-    let name = Meta::name(eph);
-    Service {
-        metadata: ObjectMeta {
-            name: Some(name.clone()),
-            namespace: Some(NS.into()),
-            owner_references: Some(vec![to_owner_reference(eph)]),
-            labels: Some(make_common_labels(&name)),
-            ..ObjectMeta::default()
-        },
-        spec: Some(ServiceSpec {
-            type_: Some("ClusterIP".into()),
-            ports: Some(vec![ServicePort {
-                port: eph.spec.port,
-                target_port: Some(IntOrString::Int(eph.spec.port)),
-                ..ServicePort::default()
-            }]),
-            selector: Some(
-                vec![("app.kubernetes.io/name".to_owned(), name)]
-                    .into_iter()
-                    .collect::<BTreeMap<_, _>>(),
-            ),
-            ..ServiceSpec::default()
-        }),
-        ..Service::default()
     }
 }
 
