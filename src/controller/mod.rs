@@ -5,19 +5,13 @@ use futures::StreamExt;
 use k8s_openapi::{
     api::{
         core::v1::{Endpoints, Pod, Service},
-        networking::v1::{
-            HTTPIngressPath, HTTPIngressRuleValue, Ingress, IngressBackend, IngressRule,
-            IngressServiceBackend, IngressSpec, ServiceBackendPort,
-        },
+        networking::v1::Ingress,
     },
     apimachinery::pkg::apis::meta::v1::OwnerReference,
     Resource,
 };
 use kube::{
-    api::{
-        DeleteParams, ListParams, Meta, ObjectMeta, Patch, PatchParams, PostParams,
-        PropagationPolicy,
-    },
+    api::{DeleteParams, ListParams, Meta, Patch, PatchParams, PropagationPolicy},
     error::ErrorResponse,
     Api, Client,
 };
@@ -27,18 +21,13 @@ use tracing::{debug, trace, warn};
 
 use super::{Ephemeron, EphemeronStatus};
 mod conditions;
+mod ingress;
 mod pod;
 mod service;
 
 const PROJECT_NAME: &str = "ephemeron";
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("Failed to create ingress: {}", source))]
-    CreateIngress { source: kube::Error },
-
-    #[snafu(display("Failed to get ingress: {}", source))]
-    GetIngress { source: kube::Error },
-
     #[snafu(display("Failed to get endpoints: {}", source))]
     GetEndpoints { source: kube::Error },
 
@@ -53,6 +42,9 @@ pub enum Error {
 
     #[snafu(display("Failed reconcile service: {}", source))]
     ReconcileService { source: service::Error },
+
+    #[snafu(display("Failed reconcile ingress: {}", source))]
+    ReconcileIngress { source: ingress::Error },
 
     #[snafu(display("Failed update condition: {}", source))]
     UpdateCondition { source: conditions::Error },
@@ -143,7 +135,10 @@ async fn update_status(
     {
         return Ok(action);
     }
-    if let Some(action) = reconcile_ingress(&eph, ctx.clone()).await? {
+    if let Some(action) = ingress::reconcile(&eph, ctx.clone())
+        .await
+        .context(ReconcileIngress)?
+    {
         return Ok(action);
     }
     if let Some(action) = reconcile_endpoints(&eph, ctx.clone()).await? {
@@ -185,41 +180,6 @@ async fn delete_expired(
     return Ok(Some(ReconcilerAction {
         requeue_after: None,
     }));
-}
-
-async fn reconcile_ingress(
-    eph: &Ephemeron,
-    ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
-    let name = Meta::name(eph);
-    let client = ctx.get_ref().client.clone();
-
-    let ings: Api<Ingress> = Api::namespaced(client.clone(), NS);
-    match ings.get(&name).await {
-        Ok(_) => Ok(None),
-
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            debug!("Creating Ingress");
-            let ing = build_ingress(&eph, ctx.get_ref().domain.as_ref());
-            match ings.create(&PostParams::default(), &ing).await {
-                Ok(_) => Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                })),
-
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Ingress already exists");
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
-
-                Err(err) => Err(Error::CreateIngress { source: err }),
-            }
-        }
-
-        // Unexpected error
-        Err(e) => Err(Error::GetIngress { source: e }),
-    }
 }
 
 async fn reconcile_endpoints(
@@ -269,42 +229,6 @@ async fn reconcile_endpoints(
         }
 
         Err(err) => Err(Error::GetEndpoints { source: err }),
-    }
-}
-
-fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
-    let name = Meta::name(eph);
-    Ingress {
-        metadata: ObjectMeta {
-            name: Some(name.clone()),
-            namespace: Some(NS.into()),
-            labels: Some(make_common_labels(&name)),
-            owner_references: Some(vec![to_owner_reference(eph)]),
-            ..ObjectMeta::default()
-        },
-        spec: Some(IngressSpec {
-            rules: Some(vec![IngressRule {
-                host: Some(format!("{}.{}", name, domain)),
-                http: Some(HTTPIngressRuleValue {
-                    paths: vec![HTTPIngressPath {
-                        path: Some("/".into()),
-                        path_type: Some("Prefix".into()),
-                        backend: IngressBackend {
-                            service: Some(IngressServiceBackend {
-                                name: name.clone(),
-                                port: Some(ServiceBackendPort {
-                                    number: Some(eph.spec.port),
-                                    name: None,
-                                }),
-                            }),
-                            resource: None,
-                        },
-                    }],
-                }),
-            }]),
-            ..IngressSpec::default()
-        }),
-        ..Ingress::default()
     }
 }
 
