@@ -11,7 +11,7 @@ use k8s_openapi::{
     Resource,
 };
 use kube::{
-    api::{DeleteParams, ListParams, Meta, PropagationPolicy},
+    api::{ListParams, Meta},
     Api, Client,
 };
 use kube_runtime::controller::{Context, Controller, ReconcilerAction};
@@ -21,6 +21,7 @@ use tracing::{debug, trace, warn};
 use super::Ephemeron;
 mod conditions;
 mod endpoints;
+mod expiry;
 mod ingress;
 mod pod;
 mod service;
@@ -28,8 +29,8 @@ mod service;
 const PROJECT_NAME: &str = "ephemeron";
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("Failed to delete ephemeron: {}", source))]
-    Delete { source: kube::Error },
+    #[snafu(display("Failed to delete expired resource: {}", source))]
+    DeleteExpired { source: expiry::Error },
 
     #[snafu(display("Failed to reconcile pod: {}", source))]
     ReconcilePod { source: pod::Error },
@@ -112,7 +113,10 @@ async fn initialize_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result
 }
 
 async fn update_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
-    if let Some(action) = delete_expired(&eph, ctx.clone()).await? {
+    if let Some(action) = expiry::delete_expired(&eph, ctx.clone())
+        .await
+        .context(DeleteExpired)?
+    {
         return Ok(action);
     }
     if let Some(action) = pod::reconcile(&eph, ctx.clone())
@@ -146,35 +150,6 @@ async fn update_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<Rec
     Ok(ReconcilerAction {
         requeue_after: Some((eph.spec.expires - Utc::now()).to_std().unwrap_or_default()),
     })
-}
-
-/// Delete the resource if it's expired.
-async fn delete_expired(
-    eph: &Ephemeron,
-    ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
-    if eph.spec.expires > Utc::now() {
-        return Ok(None);
-    }
-
-    debug!("Resource expired, deleting");
-    let name = Meta::name(eph);
-    // Delete the owner with `propagationPolicy=Background`.
-    // This will delete the owner immediately, then children are deleted by garbage collector.
-    let api: Api<Ephemeron> = Api::all(ctx.get_ref().client.clone());
-    api.delete(
-        &name,
-        &DeleteParams {
-            propagation_policy: Some(PropagationPolicy::Background),
-            ..DeleteParams::default()
-        },
-    )
-    .await
-    .context(Delete)?;
-
-    return Ok(Some(ReconcilerAction {
-        requeue_after: None,
-    }));
 }
 
 fn make_common_labels(name: &str) -> BTreeMap<String, String> {
