@@ -22,15 +22,6 @@ pub enum Error {
     #[snafu(display("Failed to get ingress: {}", source))]
     GetIngress { source: kube::Error },
 
-    #[snafu(display("Failed to get endpoints: {}", source))]
-    GetEndpoints { source: kube::Error },
-
-    #[snafu(display("Failed to delete ephemeron: {}", source))]
-    Delete { source: kube::Error },
-
-    #[snafu(display("Failed to annotate host information: {}", source))]
-    HostAnnotation { source: kube::Error },
-
     #[snafu(display("Failed to update condition: {}", source))]
     UpdateCondition { source: conditions::Error },
 }
