@@ -181,47 +181,60 @@ async fn reconcile_endpoints(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
 ) -> Result<Option<ReconcilerAction>> {
-    if eph.is_available() {
-        return Ok(None);
-    }
-
     let name = Meta::name(eph);
     let client = ctx.get_ref().client.clone();
     // Check if service has endpoints
     let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), NS);
     match endpoints.get(&name).await {
-        Ok(Endpoints {
-            subsets: Some(ss), ..
-        }) if ss.iter().any(|s| s.addresses.is_some()) => {
-            let domain: &str = ctx.get_ref().domain.as_ref();
-            let api: Api<Ephemeron> = Api::all(client.clone());
-            api.patch(
-                &name,
-                &PatchParams::default(),
-                &Patch::Merge(serde_json::json!({
-                    "metadata": {
-                        "annotations": {
-                            "host": &format!("{}.{}", &name, domain),
-                        },
-                    },
+        Ok(Endpoints { subsets, .. }) => {
+            let has_ready = subsets.map_or(false, |ss| ss.iter().any(|s| s.addresses.is_some()));
+            match (eph.is_available(), has_ready) {
+                // Nothing to do if it's ready and the condition agrees.
+                (true, true) => Ok(None),
+                // Requeue soon if `Endpoints` exists, but not ready yet.
+                (false, false) => Ok(Some(ReconcilerAction {
+                    requeue_after: Some(Duration::from_secs(1)),
                 })),
-            )
-            .await
-            .context(HostAnnotation)?;
+                // Fix outdated condition
+                (_, available) => {
+                    let api: Api<Ephemeron> = Api::all(client.clone());
+                    let patch = if available {
+                        let domain: &str = ctx.get_ref().domain.as_ref();
+                        serde_json::json!({
+                            "metadata": {
+                                "annotations": {
+                                    "host": &format!("{}.{}", &name, domain),
+                                },
+                            },
+                        })
+                    } else {
+                        serde_json::json!({
+                            "metadata": {
+                                "annotations": {
+                                    "host": null,
+                                },
+                            },
+                        })
+                    };
 
-            conditions::set_available(&eph, client, Some(true))
-                .await
-                .context(UpdateCondition)?;
-            Ok(Some(ReconcilerAction {
-                requeue_after: None,
-            }))
+                    api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
+                        .await
+                        .context(HostAnnotation)?;
+
+                    conditions::set_available(&eph, client, Some(available))
+                        .await
+                        .context(UpdateCondition)?;
+
+                    Ok(Some(ReconcilerAction {
+                        requeue_after: None,
+                    }))
+                }
+            }
         }
 
-        Ok(_) | Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            Ok(Some(ReconcilerAction {
-                requeue_after: Some(Duration::from_secs(1)),
-            }))
-        }
+        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => Ok(Some(ReconcilerAction {
+            requeue_after: Some(Duration::from_secs(2)),
+        })),
 
         Err(err) => Err(Error::GetEndpoints { source: err }),
     }
