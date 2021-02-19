@@ -51,11 +51,11 @@ The controller is configured with the following environment variables:
     └── lib.rs
 ```
 
-**Dev Commands**:
+**Dev Commands**
 
 - `cargo run`: Run controller
 - `cargo run --bin crd`: Output CRD
-- `cargo run --bin api`: Sart Web API server
+- `cargo run --bin api`: Start Web API server
 
 ## Usage 
 ### Run Controller
@@ -128,7 +128,7 @@ cargo run --bin api
 
 Create some service:
 ```bash
-$ curl \
+curl \
     -X POST \
     http://localhost:3030/ \
     -H 'Content-Type: application/json' \
@@ -138,13 +138,13 @@ $ curl \
 
 Get the host. (There's no convenient way to wait until it's ready at the moment and `host` is `null` when it's not ready.)
 ```bash
-$ curl localhost:3030/c0nddh7s3ok4clog56n0
+curl localhost:3030/c0nddh7s3ok4clog56n0
 # {"host": "c0nddh7s3ok4clog56n0.example.com"}
 ```
 
 See if it's working:
 ```bash
-$ curl c0nddh7s3ok4clog56n0.example.com | grep "<h1>Welcome to nginx!</h1>"
+curl c0nddh7s3ok4clog56n0.example.com | grep "<h1>Welcome to nginx!</h1>"
 # <h1>Welcome to nginx!</h1>
 ```
 
