@@ -16,7 +16,7 @@ use kube::{
 };
 use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
-use tracing::{debug, trace, warn};
+use tracing::{trace, warn};
 
 use super::Ephemeron;
 mod conditions;
@@ -43,10 +43,8 @@ pub enum Error {
 
     #[snafu(display("Failed to reconcile endpoints: {}", source))]
     ReconcileEndpoints { source: endpoints::Error },
-
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
 }
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 // TODO Configurable
@@ -79,40 +77,10 @@ struct ContextData {
 
 #[tracing::instrument(skip(eph, ctx), level = "debug")]
 async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
-    if let Some(status) = eph.status.as_ref() {
-        trace!("conditions: {:?}", status.conditions);
-        update_status(&eph, ctx).await
-    } else {
-        initialize_status(&eph, ctx).await
+    if let Some(conditions) = eph.status.as_ref().map(|s| &s.conditions) {
+        trace!("conditions: {:?}", conditions);
     }
-}
 
-#[allow(clippy::needless_pass_by_value)]
-/// An error handler called when the reconciler fails.
-fn error_policy(error: &Error, _ctx: Context<ContextData>) -> ReconcilerAction {
-    warn!("reconciler failed: {}", error);
-    ReconcilerAction {
-        requeue_after: None,
-    }
-}
-
-async fn initialize_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
-    debug!("First reconciliation");
-    debug!("Patching status");
-    let client = ctx.get_ref().client.clone();
-    conditions::set_pod_ready(&eph, client.clone(), None)
-        .await
-        .context(UpdateCondition)?;
-    conditions::set_available(&eph, client, None)
-        .await
-        .context(UpdateCondition)?;
-
-    Ok(ReconcilerAction {
-        requeue_after: None,
-    })
-}
-
-async fn update_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
     if let Some(action) = expiry::delete_expired(&eph, ctx.clone())
         .await
         .context(DeleteExpired)?
@@ -146,10 +114,18 @@ async fn update_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<Rec
 
     // Nothing happened in this loop, so the resource is in the desired state.
     // Requeue around when this expires unless something else triggers reconciliation.
-    debug!("Requeue later");
     Ok(ReconcilerAction {
         requeue_after: Some((eph.spec.expires - Utc::now()).to_std().unwrap_or_default()),
     })
+}
+
+#[allow(clippy::needless_pass_by_value)]
+/// An error handler called when the reconciler fails.
+fn error_policy(error: &Error, _ctx: Context<ContextData>) -> ReconcilerAction {
+    warn!("reconciler failed: {}", error);
+    ReconcilerAction {
+        requeue_after: None,
+    }
 }
 
 fn make_common_labels(name: &str) -> BTreeMap<String, String> {
