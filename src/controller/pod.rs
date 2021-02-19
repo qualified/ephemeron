@@ -33,18 +33,17 @@ pub(super) async fn reconcile(
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), super::NS);
     match pods.get(&name).await {
-        Ok(pod) => {
-            if !eph.is_pod_ready() && pod_is_ready(&pod) {
-                conditions::set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(true))
+        Ok(pod) => match (eph.is_pod_ready(), pod_is_ready(&pod)) {
+            (a, b) if a == b => Ok(None),
+            (_, actual) => {
+                conditions::set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(actual))
                     .await
                     .context(UpdateCondition)?;
                 Ok(Some(ReconcilerAction {
                     requeue_after: None,
                 }))
-            } else {
-                Ok(None)
             }
-        }
+        },
 
         Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
             conditions::set_pod_ready(&eph, client.clone(), Some(false))
