@@ -27,7 +27,8 @@ use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
 use tracing::{debug, trace, warn};
 
-use super::{Ephemeron, EphemeronCondition, EphemeronStatus};
+use super::{Ephemeron, EphemeronStatus};
+mod conditions;
 
 const PROJECT_NAME: &str = "ephemeron";
 #[derive(Debug, Snafu)]
@@ -56,11 +57,11 @@ pub enum Error {
     #[snafu(display("Failed to delete ephemeron: {}", source))]
     Delete { source: kube::Error },
 
-    #[snafu(display("Failed to update ephemeron status: {}", source))]
-    UpdateStatus { source: kube::Error },
-
     #[snafu(display("Failed to annotate host information: {}", source))]
     HostAnnotation { source: kube::Error },
+
+    #[snafu(display("Failed update condition: {}", source))]
+    UpdateCondition { source: conditions::Error },
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -114,8 +115,12 @@ async fn initialize_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result
     debug!("First reconciliation");
     debug!("Patching status");
     let client = ctx.get_ref().client.clone();
-    set_pod_ready(&eph, client.clone(), None).await?;
-    set_available(&eph, client, None).await?;
+    conditions::set_pod_ready(&eph, client.clone(), None)
+        .await
+        .context(UpdateCondition)?;
+    conditions::set_available(&eph, client, None)
+        .await
+        .context(UpdateCondition)?;
 
     Ok(ReconcilerAction {
         requeue_after: None,
@@ -193,7 +198,9 @@ async fn reconcile_pod(
     match pods.get(&name).await {
         Ok(pod) => {
             if !eph.is_pod_ready() && pod_is_ready(&pod) {
-                set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(true)).await?;
+                conditions::set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(true))
+                    .await
+                    .context(UpdateCondition)?;
                 Ok(Some(ReconcilerAction {
                     requeue_after: None,
                 }))
@@ -203,8 +210,12 @@ async fn reconcile_pod(
         }
 
         Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            set_pod_ready(&eph, client.clone(), Some(false)).await?;
-            set_available(&eph, client.clone(), Some(false)).await?;
+            conditions::set_pod_ready(&eph, client.clone(), Some(false))
+                .await
+                .context(UpdateCondition)?;
+            conditions::set_available(&eph, client.clone(), Some(false))
+                .await
+                .context(UpdateCondition)?;
             let pod = build_pod(&eph);
             match pods.create(&PostParams::default(), &pod).await {
                 Ok(_) => Ok(Some(ReconcilerAction {
@@ -324,7 +335,9 @@ async fn reconcile_endpoints(
             .await
             .context(HostAnnotation)?;
 
-            set_available(&eph, client, Some(true)).await?;
+            conditions::set_available(&eph, client, Some(true))
+                .await
+                .context(UpdateCondition)?;
             Ok(Some(ReconcilerAction {
                 requeue_after: None,
             }))
@@ -338,45 +351,6 @@ async fn reconcile_endpoints(
 
         Err(err) => Err(Error::GetEndpoints { source: err }),
     }
-}
-
-#[tracing::instrument(skip(eph, client), level = "debug")]
-async fn set_pod_ready(eph: &Ephemeron, client: Client, status: Option<bool>) -> Result<()> {
-    set_condition(eph, client, EphemeronCondition::pod_ready(status)).await
-}
-
-#[tracing::instrument(skip(eph, client), level = "debug")]
-async fn set_available(eph: &Ephemeron, client: Client, status: Option<bool>) -> Result<()> {
-    set_condition(eph, client, EphemeronCondition::available(status)).await
-}
-
-async fn set_condition(
-    eph: &Ephemeron,
-    client: Client,
-    condition: EphemeronCondition,
-) -> Result<()> {
-    // > It is strongly recommended for controllers to always "force" conflicts,
-    // > since they might not be able to resolve or act on these conflicts.
-    // > https://kubernetes.io/docs/reference/using-api/server-side-apply/#using-server-side-apply-in-a-controller
-    let ssapply = PatchParams::apply(condition.manager()).force();
-    let name = Meta::name(eph);
-    let api: Api<Ephemeron> = Api::all(client);
-    api.patch_status(
-        &name,
-        &ssapply,
-        &Patch::Apply(serde_json::json!({
-            "apiVersion": <Ephemeron as Resource>::API_VERSION,
-            "kind": <Ephemeron as Resource>::KIND,
-            "status": EphemeronStatus {
-                conditions: vec![condition],
-                observed_generation: eph.metadata.generation,
-            },
-        })),
-    )
-    .await
-    .context(UpdateStatus)?;
-
-    Ok(())
 }
 
 fn build_pod(eph: &Ephemeron) -> Pod {
