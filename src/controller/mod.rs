@@ -19,7 +19,7 @@ use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
 use tracing::{debug, trace, warn};
 
-use super::{Ephemeron, EphemeronStatus};
+use super::Ephemeron;
 mod conditions;
 mod ingress;
 mod pod;
@@ -82,7 +82,8 @@ struct ContextData {
 #[tracing::instrument(skip(eph, ctx), level = "debug")]
 async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
     if let Some(status) = eph.status.as_ref() {
-        update_status(&eph, ctx, status).await
+        trace!("conditions: {:?}", status.conditions);
+        update_status(&eph, ctx).await
     } else {
         initialize_status(&eph, ctx).await
     }
@@ -113,13 +114,7 @@ async fn initialize_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result
     })
 }
 
-async fn update_status(
-    eph: &Ephemeron,
-    ctx: Context<ContextData>,
-    status: &EphemeronStatus,
-) -> Result<ReconcilerAction> {
-    trace!("conditions: {:?}", status.conditions);
-
+async fn update_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
     if let Some(action) = delete_expired(&eph, ctx.clone()).await? {
         return Ok(action);
     }
