@@ -68,19 +68,16 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 const NS: &str = "default";
 
 pub async fn run(client: Client, domain: String) {
-    let lp =
-        ListParams::default().labels(&format!("app.kubernetes.io/managed-by={}", PROJECT_NAME));
-    let controller = Controller::<Ephemeron>::new(Api::all(client.clone()), ListParams::default())
-        .owns::<Pod>(Api::namespaced(client.clone(), NS), lp.clone())
-        .owns::<Service>(Api::namespaced(client.clone(), NS), lp.clone())
-        .owns::<Ingress>(Api::namespaced(client.clone(), NS), lp);
-
     let context = Context::new(ContextData {
         client: client.clone(),
         domain,
     });
 
-    controller
+    let lp = ListParams::default();
+    Controller::<Ephemeron>::new(Api::all(client.clone()), lp.clone())
+        .owns::<Pod>(Api::namespaced(client.clone(), NS), lp.clone())
+        .owns::<Service>(Api::namespaced(client.clone(), NS), lp.clone())
+        .owns::<Ingress>(Api::namespaced(client.clone(), NS), lp)
         .run(reconciler, error_policy, context)
         .filter_map(|x| async move { x.ok() })
         .for_each(|(_, action)| async move {
@@ -97,172 +94,10 @@ struct ContextData {
 
 #[tracing::instrument(skip(eph, ctx), level = "debug")]
 async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
-    let name = Meta::name(&eph);
-    match eph.status.as_ref() {
-        None => {
-            debug!("First reconciliation");
-            debug!("Patching status");
-            let client = ctx.get_ref().client.clone();
-            set_pod_ready(&eph, client.clone(), None).await?;
-            set_available(&eph, client, None).await?;
-
-            Ok(ReconcilerAction {
-                requeue_after: None,
-            })
-        }
-
-        Some(status) => {
-            trace!("conditions: {:?}", status.conditions);
-
-            // Expired condition must be checked first.
-            if eph.spec.expires <= Utc::now() {
-                debug!("Resource expired, deleting");
-                // Delete the owner with `propagationPolicy=Background`.
-                // This will delete the owner immediately, then children are deleted by garbage collector.
-                let api: Api<Ephemeron> = Api::all(ctx.get_ref().client.clone());
-                api.delete(
-                    &name,
-                    &DeleteParams {
-                        propagation_policy: Some(PropagationPolicy::Background),
-                        ..DeleteParams::default()
-                    },
-                )
-                .await
-                .context(Delete)?;
-
-                return Ok(ReconcilerAction {
-                    requeue_after: None,
-                });
-            }
-
-            let client = ctx.get_ref().client.clone();
-            // TODO Get or Create (ignore 409 conflict)
-            // Create pod if missing.
-            let pods: Api<Pod> = Api::namespaced(client.clone(), NS);
-            match pods.get(&name).await {
-                Ok(pod) => {
-                    if !eph.is_pod_ready() && pod_is_ready(&pod) {
-                        set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(true)).await?;
-                        return Ok(ReconcilerAction {
-                            requeue_after: None,
-                        });
-                    }
-                }
-
-                Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-                    set_pod_ready(&eph, client.clone(), Some(false)).await?;
-                    set_available(&eph, client.clone(), Some(false)).await?;
-                    let pod = build_pod(&eph);
-                    return match pods.create(&PostParams::default(), &pod).await {
-                        Ok(_) => Ok(ReconcilerAction {
-                            requeue_after: None,
-                        }),
-                        Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                            debug!("Pod already exists");
-                            Ok(ReconcilerAction {
-                                requeue_after: None,
-                            })
-                        }
-                        Err(err) => Err(Error::CreatePod { source: err }),
-                    };
-                }
-                // Unexpected error
-                Err(e) => return Err(Error::GetPod { source: e }),
-            }
-
-            // Create Service if missing.
-            let svcs: Api<Service> = Api::namespaced(client.clone(), NS);
-            match svcs.get(&name).await {
-                Ok(_) => {}
-                Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-                    debug!("Creating Service");
-                    let svc = build_service(&eph);
-                    return match svcs.create(&PostParams::default(), &svc).await {
-                        Ok(_) => Ok(ReconcilerAction {
-                            requeue_after: None,
-                        }),
-                        Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                            debug!("Service already exists");
-                            Ok(ReconcilerAction {
-                                requeue_after: None,
-                            })
-                        }
-                        Err(err) => Err(Error::CreateService { source: err }),
-                    };
-                }
-                // Unexpected error
-                Err(e) => return Err(Error::GetService { source: e }),
-            }
-
-            // Create Ingress if missing.
-            let ings: Api<Ingress> = Api::namespaced(client.clone(), NS);
-            match ings.get(&name).await {
-                Ok(_) => {}
-                Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-                    debug!("Creating Ingress");
-                    let ing = build_ingress(&eph, ctx.get_ref().domain.as_ref());
-                    return match ings.create(&PostParams::default(), &ing).await {
-                        Ok(_) => Ok(ReconcilerAction {
-                            requeue_after: None,
-                        }),
-                        Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                            debug!("Ingress already exists");
-                            Ok(ReconcilerAction {
-                                requeue_after: None,
-                            })
-                        }
-                        Err(err) => Err(Error::CreateIngress { source: err }),
-                    };
-                }
-                // Unexpected error
-                Err(e) => return Err(Error::GetIngress { source: e }),
-            }
-
-            if !eph.is_available() {
-                // Check if service has endpoints
-                let eps: Api<Endpoints> = Api::namespaced(client.clone(), NS);
-                return match eps.get(&name).await {
-                    Ok(Endpoints {
-                        subsets: Some(ss), ..
-                    }) if ss.iter().any(|s| s.addresses.is_some()) => {
-                        let domain: &str = ctx.get_ref().domain.as_ref();
-                        let api: Api<Ephemeron> = Api::all(client.clone());
-                        api.patch(
-                            &name,
-                            &PatchParams::default(),
-                            &Patch::Merge(serde_json::json!({
-                                "metadata": {
-                                    "annotations": {
-                                        "host": &format!("{}.{}", &name, domain),
-                                    },
-                                },
-                            })),
-                        )
-                        .await
-                        .context(HostAnnotation)?;
-
-                        set_available(&eph, client, Some(true)).await?;
-                        Ok(ReconcilerAction {
-                            requeue_after: None,
-                        })
-                    }
-
-                    Ok(_) | Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-                        Ok(ReconcilerAction {
-                            requeue_after: Some(Duration::from_secs(1)),
-                        })
-                    }
-
-                    Err(err) => return Err(Error::GetEndpoints { source: err }),
-                };
-            }
-
-            // If children are there, requeue after some time.
-            debug!("Requeue later");
-            Ok(ReconcilerAction {
-                requeue_after: Some((eph.spec.expires - Utc::now()).to_std().unwrap_or_default()),
-            })
-        }
+    if let Some(status) = eph.status.as_ref() {
+        update_status(&eph, ctx, status).await
+    } else {
+        initialize_status(&eph, ctx).await
     }
 }
 
@@ -272,6 +107,236 @@ fn error_policy(error: &Error, _ctx: Context<ContextData>) -> ReconcilerAction {
     warn!("reconciler failed: {}", error);
     ReconcilerAction {
         requeue_after: None,
+    }
+}
+
+async fn initialize_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
+    debug!("First reconciliation");
+    debug!("Patching status");
+    let client = ctx.get_ref().client.clone();
+    set_pod_ready(&eph, client.clone(), None).await?;
+    set_available(&eph, client, None).await?;
+
+    Ok(ReconcilerAction {
+        requeue_after: None,
+    })
+}
+
+async fn update_status(
+    eph: &Ephemeron,
+    ctx: Context<ContextData>,
+    status: &EphemeronStatus,
+) -> Result<ReconcilerAction> {
+    trace!("conditions: {:?}", status.conditions);
+
+    if let Some(action) = delete_expired(&eph, ctx.clone()).await? {
+        return Ok(action);
+    }
+    if let Some(action) = reconcile_pod(&eph, ctx.clone()).await? {
+        return Ok(action);
+    }
+    if let Some(action) = reconcile_service(&eph, ctx.clone()).await? {
+        return Ok(action);
+    }
+    if let Some(action) = reconcile_ingress(&eph, ctx.clone()).await? {
+        return Ok(action);
+    }
+    if let Some(action) = reconcile_endpoints(&eph, ctx.clone()).await? {
+        return Ok(action);
+    }
+
+    // Nothing happened in this loop, so the resource is in the desired state.
+    // Requeue around when this expires unless something else triggers reconciliation.
+    debug!("Requeue later");
+    Ok(ReconcilerAction {
+        requeue_after: Some((eph.spec.expires - Utc::now()).to_std().unwrap_or_default()),
+    })
+}
+
+/// Delete the resource if it's expired.
+async fn delete_expired(
+    eph: &Ephemeron,
+    ctx: Context<ContextData>,
+) -> Result<Option<ReconcilerAction>> {
+    if eph.spec.expires > Utc::now() {
+        return Ok(None);
+    }
+
+    debug!("Resource expired, deleting");
+    let name = Meta::name(eph);
+    // Delete the owner with `propagationPolicy=Background`.
+    // This will delete the owner immediately, then children are deleted by garbage collector.
+    let api: Api<Ephemeron> = Api::all(ctx.get_ref().client.clone());
+    api.delete(
+        &name,
+        &DeleteParams {
+            propagation_policy: Some(PropagationPolicy::Background),
+            ..DeleteParams::default()
+        },
+    )
+    .await
+    .context(Delete)?;
+
+    return Ok(Some(ReconcilerAction {
+        requeue_after: None,
+    }));
+}
+
+async fn reconcile_pod(
+    eph: &Ephemeron,
+    ctx: Context<ContextData>,
+) -> Result<Option<ReconcilerAction>> {
+    let name = Meta::name(eph);
+    let client = ctx.get_ref().client.clone();
+
+    let pods: Api<Pod> = Api::namespaced(client.clone(), NS);
+    match pods.get(&name).await {
+        Ok(pod) => {
+            if !eph.is_pod_ready() && pod_is_ready(&pod) {
+                set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(true)).await?;
+                Ok(Some(ReconcilerAction {
+                    requeue_after: None,
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+
+        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
+            set_pod_ready(&eph, client.clone(), Some(false)).await?;
+            set_available(&eph, client.clone(), Some(false)).await?;
+            let pod = build_pod(&eph);
+            match pods.create(&PostParams::default(), &pod).await {
+                Ok(_) => Ok(Some(ReconcilerAction {
+                    requeue_after: None,
+                })),
+                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                    debug!("Pod already exists");
+                    Ok(Some(ReconcilerAction {
+                        requeue_after: None,
+                    }))
+                }
+                Err(err) => Err(Error::CreatePod { source: err }),
+            }
+        }
+
+        // Unexpected error
+        Err(e) => Err(Error::GetPod { source: e }),
+    }
+}
+
+async fn reconcile_service(
+    eph: &Ephemeron,
+    ctx: Context<ContextData>,
+) -> Result<Option<ReconcilerAction>> {
+    let name = Meta::name(eph);
+    let client = ctx.get_ref().client.clone();
+
+    let svcs: Api<Service> = Api::namespaced(client.clone(), NS);
+    match svcs.get(&name).await {
+        Ok(_) => Ok(None),
+        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
+            debug!("Creating Service");
+            let svc = build_service(&eph);
+            match svcs.create(&PostParams::default(), &svc).await {
+                Ok(_) => Ok(Some(ReconcilerAction {
+                    requeue_after: None,
+                })),
+                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                    debug!("Service already exists");
+                    Ok(Some(ReconcilerAction {
+                        requeue_after: None,
+                    }))
+                }
+                Err(err) => Err(Error::CreateService { source: err }),
+            }
+        }
+
+        // Unexpected error
+        Err(e) => Err(Error::GetService { source: e }),
+    }
+}
+
+async fn reconcile_ingress(
+    eph: &Ephemeron,
+    ctx: Context<ContextData>,
+) -> Result<Option<ReconcilerAction>> {
+    let name = Meta::name(eph);
+    let client = ctx.get_ref().client.clone();
+
+    let ings: Api<Ingress> = Api::namespaced(client.clone(), NS);
+    match ings.get(&name).await {
+        Ok(_) => Ok(None),
+
+        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
+            debug!("Creating Ingress");
+            let ing = build_ingress(&eph, ctx.get_ref().domain.as_ref());
+            match ings.create(&PostParams::default(), &ing).await {
+                Ok(_) => Ok(Some(ReconcilerAction {
+                    requeue_after: None,
+                })),
+
+                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                    debug!("Ingress already exists");
+                    Ok(Some(ReconcilerAction {
+                        requeue_after: None,
+                    }))
+                }
+
+                Err(err) => Err(Error::CreateIngress { source: err }),
+            }
+        }
+
+        // Unexpected error
+        Err(e) => Err(Error::GetIngress { source: e }),
+    }
+}
+
+async fn reconcile_endpoints(
+    eph: &Ephemeron,
+    ctx: Context<ContextData>,
+) -> Result<Option<ReconcilerAction>> {
+    if eph.is_available() {
+        return Ok(None);
+    }
+
+    let name = Meta::name(eph);
+    let client = ctx.get_ref().client.clone();
+    // Check if service has endpoints
+    let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), NS);
+    match endpoints.get(&name).await {
+        Ok(Endpoints {
+            subsets: Some(ss), ..
+        }) if ss.iter().any(|s| s.addresses.is_some()) => {
+            let domain: &str = ctx.get_ref().domain.as_ref();
+            let api: Api<Ephemeron> = Api::all(client.clone());
+            api.patch(
+                &name,
+                &PatchParams::default(),
+                &Patch::Merge(serde_json::json!({
+                    "metadata": {
+                        "annotations": {
+                            "host": &format!("{}.{}", &name, domain),
+                        },
+                    },
+                })),
+            )
+            .await
+            .context(HostAnnotation)?;
+
+            set_available(&eph, client, Some(true)).await?;
+            Ok(Some(ReconcilerAction {
+                requeue_after: None,
+            }))
+        }
+
+        Ok(_) | Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
+            Ok(Some(ReconcilerAction {
+                requeue_after: Some(Duration::from_secs(1)),
+            }))
+        }
+
+        Err(err) => Err(Error::GetEndpoints { source: err }),
     }
 }
 
