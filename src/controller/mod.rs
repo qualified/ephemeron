@@ -1,18 +1,17 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::collections::BTreeMap;
 
 use chrono::Utc;
 use futures::StreamExt;
 use k8s_openapi::{
     api::{
-        core::v1::{Endpoints, Pod, Service},
+        core::v1::{Pod, Service},
         networking::v1::Ingress,
     },
     apimachinery::pkg::apis::meta::v1::OwnerReference,
     Resource,
 };
 use kube::{
-    api::{DeleteParams, ListParams, Meta, Patch, PatchParams, PropagationPolicy},
-    error::ErrorResponse,
+    api::{DeleteParams, ListParams, Meta, PropagationPolicy},
     Api, Client,
 };
 use kube_runtime::controller::{Context, Controller, ReconcilerAction};
@@ -21,6 +20,7 @@ use tracing::{debug, trace, warn};
 
 use super::Ephemeron;
 mod conditions;
+mod endpoints;
 mod ingress;
 mod pod;
 mod service;
@@ -28,14 +28,8 @@ mod service;
 const PROJECT_NAME: &str = "ephemeron";
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("Failed to get endpoints: {}", source))]
-    GetEndpoints { source: kube::Error },
-
     #[snafu(display("Failed to delete ephemeron: {}", source))]
     Delete { source: kube::Error },
-
-    #[snafu(display("Failed to annotate host information: {}", source))]
-    HostAnnotation { source: kube::Error },
 
     #[snafu(display("Failed to reconcile pod: {}", source))]
     ReconcilePod { source: pod::Error },
@@ -45,6 +39,9 @@ pub enum Error {
 
     #[snafu(display("Failed to reconcile ingress: {}", source))]
     ReconcileIngress { source: ingress::Error },
+
+    #[snafu(display("Failed to reconcile endpoints: {}", source))]
+    ReconcileEndpoints { source: endpoints::Error },
 
     #[snafu(display("Failed to update condition: {}", source))]
     UpdateCondition { source: conditions::Error },
@@ -136,7 +133,10 @@ async fn update_status(eph: &Ephemeron, ctx: Context<ContextData>) -> Result<Rec
     {
         return Ok(action);
     }
-    if let Some(action) = reconcile_endpoints(&eph, ctx.clone()).await? {
+    if let Some(action) = endpoints::reconcile(&eph, ctx.clone())
+        .await
+        .context(ReconcileEndpoints)?
+    {
         return Ok(action);
     }
 
@@ -175,69 +175,6 @@ async fn delete_expired(
     return Ok(Some(ReconcilerAction {
         requeue_after: None,
     }));
-}
-
-async fn reconcile_endpoints(
-    eph: &Ephemeron,
-    ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
-    let name = Meta::name(eph);
-    let client = ctx.get_ref().client.clone();
-    // Check if service has endpoints
-    let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), NS);
-    match endpoints.get(&name).await {
-        Ok(Endpoints { subsets, .. }) => {
-            let has_ready = subsets.map_or(false, |ss| ss.iter().any(|s| s.addresses.is_some()));
-            match (eph.is_available(), has_ready) {
-                // Nothing to do if it's ready and the condition agrees.
-                (true, true) => Ok(None),
-                // Requeue soon if `Endpoints` exists, but not ready yet.
-                (false, false) => Ok(Some(ReconcilerAction {
-                    requeue_after: Some(Duration::from_secs(1)),
-                })),
-                // Fix outdated condition
-                (_, available) => {
-                    let api: Api<Ephemeron> = Api::all(client.clone());
-                    let patch = if available {
-                        let domain: &str = ctx.get_ref().domain.as_ref();
-                        serde_json::json!({
-                            "metadata": {
-                                "annotations": {
-                                    "host": &format!("{}.{}", &name, domain),
-                                },
-                            },
-                        })
-                    } else {
-                        serde_json::json!({
-                            "metadata": {
-                                "annotations": {
-                                    "host": null,
-                                },
-                            },
-                        })
-                    };
-
-                    api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
-                        .await
-                        .context(HostAnnotation)?;
-
-                    conditions::set_available(&eph, client, Some(available))
-                        .await
-                        .context(UpdateCondition)?;
-
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
-            }
-        }
-
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => Ok(Some(ReconcilerAction {
-            requeue_after: Some(Duration::from_secs(2)),
-        })),
-
-        Err(err) => Err(Error::GetEndpoints { source: err }),
-    }
 }
 
 fn make_common_labels(name: &str) -> BTreeMap<String, String> {
