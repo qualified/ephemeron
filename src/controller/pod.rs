@@ -1,8 +1,8 @@
 use k8s_openapi::api::core::v1::{Container, ContainerPort, Pod, PodSpec};
 use kube::{
-    api::{Meta, ObjectMeta, PostParams},
+    api::{ObjectMeta, PostParams},
     error::ErrorResponse,
-    Api,
+    Api, Resource,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
@@ -29,7 +29,7 @@ pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
 ) -> Result<Option<ReconcilerAction>> {
-    let name = Meta::name(eph);
+    let name = Resource::name(eph);
     let client = ctx.get_ref().client.clone();
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), super::NS);
@@ -74,7 +74,7 @@ pub(super) async fn reconcile(
 }
 
 fn build_pod(eph: &Ephemeron) -> Pod {
-    let name = Meta::name(eph);
+    let name = Resource::name(eph);
     Pod {
         metadata: ObjectMeta {
             name: Some(name.clone()),

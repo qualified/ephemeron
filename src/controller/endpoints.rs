@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use k8s_openapi::api::core::v1::Endpoints;
 use kube::{
-    api::{Meta, Patch, PatchParams},
+    api::{Patch, PatchParams},
     error::ErrorResponse,
-    Api,
+    Api, Resource,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
@@ -30,7 +30,7 @@ pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
 ) -> Result<Option<ReconcilerAction>> {
-    let name = Meta::name(eph);
+    let name = Resource::name(eph);
     let client = ctx.get_ref().client.clone();
     // Check if service has endpoints
     let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), super::NS);
