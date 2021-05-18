@@ -5,9 +5,9 @@ use k8s_openapi::{
     apimachinery::pkg::util::intstr::IntOrString,
 };
 use kube::{
-    api::{ObjectMeta, PostParams},
+    api::{ObjectMeta, PostParams, ResourceExt},
     error::ErrorResponse,
-    Api, Resource,
+    Api,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::Snafu;
@@ -35,7 +35,7 @@ pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
 ) -> Result<Option<ReconcilerAction>> {
-    let name = Resource::name(eph);
+    let name = eph.name();
     let client = ctx.get_ref().client.clone();
 
     let svcs: Api<Service> = Api::namespaced(client.clone(), super::NS);
@@ -64,7 +64,7 @@ pub(super) async fn reconcile(
 }
 
 fn build_service(eph: &Ephemeron) -> Service {
-    let name = Resource::name(eph);
+    let name = eph.name();
     Service {
         metadata: ObjectMeta {
             name: Some(name.clone()),

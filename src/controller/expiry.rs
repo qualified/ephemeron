@@ -1,7 +1,7 @@
 use chrono::Utc;
 use kube::{
-    api::{DeleteParams, PropagationPolicy},
-    Api, Resource,
+    api::{DeleteParams, PropagationPolicy, ResourceExt},
+    Api,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
@@ -29,7 +29,7 @@ pub(super) async fn reconcile(
     }
 
     debug!("Resource expired, deleting");
-    let name = Resource::name(eph);
+    let name = eph.name();
     // Delete the owner with `propagationPolicy=Background`.
     // This will delete the owner immediately, then children are deleted by garbage collector.
     let api: Api<Ephemeron> = Api::all(ctx.get_ref().client.clone());

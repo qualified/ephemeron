@@ -1,5 +1,5 @@
 use kube::{
-    api::{Patch, PatchParams},
+    api::{Patch, PatchParams, ResourceExt},
     Api, Client, Resource,
 };
 use snafu::{ResultExt, Snafu};
@@ -32,7 +32,7 @@ async fn set_condition(
     // > since they might not be able to resolve or act on these conflicts.
     // > https://kubernetes.io/docs/reference/using-api/server-side-apply/#using-server-side-apply-in-a-controller
     let ssapply = PatchParams::apply(condition.manager()).force();
-    let name = Resource::name(eph);
+    let name = eph.name();
     let api: Api<Ephemeron> = Api::all(client);
     api.patch_status(
         &name,

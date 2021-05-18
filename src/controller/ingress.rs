@@ -3,9 +3,9 @@ use k8s_openapi::api::networking::v1::{
     IngressServiceBackend, IngressSpec, ServiceBackendPort,
 };
 use kube::{
-    api::{ObjectMeta, PostParams},
+    api::{ObjectMeta, PostParams, ResourceExt},
     error::ErrorResponse,
-    Api, Resource,
+    Api,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::Snafu;
@@ -32,7 +32,7 @@ pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
 ) -> Result<Option<ReconcilerAction>> {
-    let name = Resource::name(eph);
+    let name = eph.name();
     let client = ctx.get_ref().client.clone();
 
     let ings: Api<Ingress> = Api::namespaced(client.clone(), super::NS);
@@ -64,7 +64,7 @@ pub(super) async fn reconcile(
 }
 
 fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
-    let name = Resource::name(eph);
+    let name = eph.name();
     Ingress {
         metadata: ObjectMeta {
             name: Some(name.clone()),
