@@ -72,15 +72,15 @@ EPHEMERON_DOMAIN=example.com cargo run
 ```
 
 <details>
-<summary><a href="http://xip.io">xip.io</a> can be used for local development</summary>
+<summary><a href="http://sslip.io">sslip.io</a> can be used for local development</summary>
 
 `k3d/k3s` example:
 ```bash
 LB_IP=$(kubectl get svc -o=jsonpath='{.status.loadBalancer.ingress[0].ip}' -n kube-system traefik)
-EPHEMERON_DOMAIN="$LB_IP.xip.io" cargo run
+EPHEMERON_DOMAIN="$LB_IP.sslip.io" cargo run
 ```
 
-> `*.10.0.0.1.xip.io` resolves to `10.0.0.1`
+> `*.10.0.0.1.sslip.io` resolves to `10.0.0.1`
 
 </details>
 

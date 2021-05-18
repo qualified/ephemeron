@@ -1,7 +1,6 @@
-use k8s_openapi::Resource;
 use kube::{
-    api::{Meta, Patch, PatchParams},
-    Api, Client,
+    api::{Patch, PatchParams, ResourceExt},
+    Api, Client, Resource,
 };
 use snafu::{ResultExt, Snafu};
 
@@ -33,14 +32,14 @@ async fn set_condition(
     // > since they might not be able to resolve or act on these conflicts.
     // > https://kubernetes.io/docs/reference/using-api/server-side-apply/#using-server-side-apply-in-a-controller
     let ssapply = PatchParams::apply(condition.manager()).force();
-    let name = Meta::name(eph);
+    let name = eph.name();
     let api: Api<Ephemeron> = Api::all(client);
     api.patch_status(
         &name,
         &ssapply,
         &Patch::Apply(serde_json::json!({
-            "apiVersion": <Ephemeron as Resource>::API_VERSION,
-            "kind": <Ephemeron as Resource>::KIND,
+            "apiVersion": Ephemeron::api_version(&()),
+            "kind": Ephemeron::kind(&()),
             "status": EphemeronStatus {
                 conditions: vec![condition],
                 observed_generation: eph.metadata.generation,

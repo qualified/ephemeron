@@ -8,11 +8,10 @@ use k8s_openapi::{
         networking::v1::Ingress,
     },
     apimachinery::pkg::apis::meta::v1::OwnerReference,
-    Resource,
 };
 use kube::{
-    api::{ListParams, Meta},
-    Api, Client,
+    api::{ListParams, ResourceExt},
+    Api, Client, Resource,
 };
 use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
@@ -140,9 +139,9 @@ fn make_common_labels(name: &str) -> BTreeMap<String, String> {
 
 fn to_owner_reference(eph: &Ephemeron) -> OwnerReference {
     OwnerReference {
-        api_version: <Ephemeron as Resource>::API_VERSION.to_string(),
-        kind: <Ephemeron as Resource>::KIND.to_string(),
-        name: Meta::name(eph),
+        api_version: Ephemeron::api_version(&()).into_owned(),
+        kind: Ephemeron::kind(&()).into_owned(),
+        name: eph.name(),
         uid: eph.metadata.uid.clone().expect(".metadata.uid"),
         controller: Some(true),
         block_owner_deletion: Some(true),
