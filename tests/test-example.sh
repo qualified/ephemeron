@@ -21,7 +21,7 @@ done
 echo "::endgroup::"
 
 echo "::group::Run Controller"
-export EPHEMERON_DOMAIN="$ip.xip.io"
+export EPHEMERON_DOMAIN="$ip.sslip.io"
 cargo run &
 controller=$!
 echo "::endgroup::"
