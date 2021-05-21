@@ -785,9 +785,9 @@ dependencies = [
 
 [[package]]
 name = "kube"
-version = "0.53.0"
+version = "0.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38a92e9c744815d199c09b9a4799efb3efc1f2528a6a3c35fb38115b0d691f17"
+checksum = "43a7370e62dacd8f672231c59001ddf00b090648c81b3cde2600bfbfab7518fe"
 dependencies = [
  "base64",
  "bytes",
@@ -801,9 +801,8 @@ dependencies = [
  "hyper-tls",
  "jsonpath_lib",
  "k8s-openapi",
+ "kube-core",
  "kube-derive",
- "log",
- "once_cell",
  "openssl",
  "pem",
  "pin-project 1.0.5",
@@ -821,10 +820,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "kube-derive"
-version = "0.53.0"
+name = "kube-core"
+version = "0.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47c6bddeb174717fc806c11a56484d930d2ee9984195ba4c7b8ffa146ac5a770"
+checksum = "1a12871b580beae491ae6adeed43f261d85c3fb2bf97d53ab9cf9c1c9ffb32e5"
+dependencies = [
+ "http",
+ "k8s-openapi",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "url",
+]
+
+[[package]]
+name = "kube-derive"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875af6c219be177d6c5cca8c82f026b6c338bffbefcfebd3ed454d78ed74b9f4"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -835,9 +849,9 @@ dependencies = [
 
 [[package]]
 name = "kube-runtime"
-version = "0.53.0"
+version = "0.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49a005e33a497a96ab203f4aa567262df420e494023712d85339469e93e8135e"
+checksum = "975f4b3d7742d74ae5c15d3b460b68dea35ee622219e6ea1bc95f71e344ac061"
 dependencies = [
  "dashmap",
  "derivative",

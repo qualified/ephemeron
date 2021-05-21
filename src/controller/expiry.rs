@@ -1,7 +1,7 @@
 use chrono::Utc;
 use kube::{
-    api::{DeleteParams, PropagationPolicy, ResourceExt},
-    Api,
+    api::{DeleteParams, PropagationPolicy},
+    Api, ResourceExt,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};

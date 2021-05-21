@@ -9,10 +9,7 @@ use k8s_openapi::{
     },
     apimachinery::pkg::apis::meta::v1::OwnerReference,
 };
-use kube::{
-    api::{ListParams, ResourceExt},
-    Api, Client, Resource,
-};
+use kube::{api::ListParams, Api, Client, Resource, ResourceExt};
 use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
 use tracing::{trace, warn};

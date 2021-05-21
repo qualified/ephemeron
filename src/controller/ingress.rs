@@ -3,9 +3,9 @@ use k8s_openapi::api::networking::v1::{
     IngressServiceBackend, IngressSpec, ServiceBackendPort,
 };
 use kube::{
-    api::{ObjectMeta, PostParams, ResourceExt},
+    api::{ObjectMeta, PostParams},
     error::ErrorResponse,
-    Api,
+    Api, ResourceExt,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::Snafu;
