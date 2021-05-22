@@ -5,9 +5,9 @@ use k8s_openapi::{
     apimachinery::pkg::util::intstr::IntOrString,
 };
 use kube::{
-    api::{ObjectMeta, PostParams, ResourceExt},
+    api::{ObjectMeta, PostParams},
     error::ErrorResponse,
-    Api,
+    Api, ResourceExt,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::Snafu;

@@ -1,8 +1,8 @@
 use k8s_openapi::api::core::v1::{Container, ContainerPort, Pod, PodSpec};
 use kube::{
-    api::{ObjectMeta, PostParams, ResourceExt},
+    api::{ObjectMeta, PostParams},
     error::ErrorResponse,
-    Api,
+    Api, ResourceExt,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};

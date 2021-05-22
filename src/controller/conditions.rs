@@ -1,6 +1,6 @@
 use kube::{
-    api::{Patch, PatchParams, ResourceExt},
-    Api, Client, Resource,
+    api::{Patch, PatchParams},
+    Api, Client, Resource, ResourceExt,
 };
 use snafu::{ResultExt, Snafu};
 

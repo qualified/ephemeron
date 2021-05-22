@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use k8s_openapi::api::core::v1::Endpoints;
 use kube::{
-    api::{Patch, PatchParams, ResourceExt},
+    api::{Patch, PatchParams},
     error::ErrorResponse,
-    Api,
+    Api, ResourceExt,
 };
 use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
