@@ -87,6 +87,13 @@ fn build_pod(eph: &Ephemeron) -> Pod {
             containers: vec![Container {
                 name: "container".into(),
                 image: Some(eph.spec.image.clone()),
+                // Note that `command` in Kubernetes corresponds to `Entrypoint` in Docker, and
+                // `args` corresponds to `Cmd` in Docker.
+                // See https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/#notes
+                //
+                // If `command` is specified without `args`, only the supplied `command` is used.
+                // The default `Entrypoint` and `Cmd` are ignored.
+                // If `command` is not specified, the default `EntryPoint` and `Cmd` are used.
                 command: eph.spec.command.clone().unwrap_or_default(),
                 ports: vec![ContainerPort {
                     container_port: eph.spec.port,
