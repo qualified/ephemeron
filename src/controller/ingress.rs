@@ -69,12 +69,12 @@ fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
         metadata: ObjectMeta {
             name: Some(name.clone()),
             namespace: Some(super::NS.into()),
-            labels: Some(super::make_common_labels(&name)),
-            owner_references: Some(vec![super::to_owner_reference(eph)]),
+            labels: super::make_common_labels(&name),
+            owner_references: vec![super::to_owner_reference(eph)],
             ..ObjectMeta::default()
         },
         spec: Some(IngressSpec {
-            rules: Some(vec![IngressRule {
+            rules: vec![IngressRule {
                 host: Some(format!("{}.{}", name, domain)),
                 http: Some(HTTPIngressRuleValue {
                     paths: vec![HTTPIngressPath {
@@ -92,7 +92,7 @@ fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
                         },
                     }],
                 }),
-            }]),
+            }],
             ..IngressSpec::default()
         }),
         ..Ingress::default()

@@ -46,10 +46,7 @@ pub(crate) async fn get_host(id: String, client: Client) -> Result<impl Reply, I
     let api: Api<Ephemeron> = Api::all(client);
     match api.get(&id).await {
         Ok(eph) => {
-            let host = eph
-                .metadata
-                .annotations
-                .and_then(|m| m.get("host").cloned());
+            let host = eph.metadata.annotations.get("host").cloned();
             let json = warp::reply::json(&HostInfo { host });
             Ok(warp::reply::with_status(json, StatusCode::OK))
         }
