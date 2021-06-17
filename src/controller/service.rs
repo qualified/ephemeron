@@ -69,22 +69,20 @@ fn build_service(eph: &Ephemeron) -> Service {
         metadata: ObjectMeta {
             name: Some(name.clone()),
             namespace: Some(super::NS.into()),
-            owner_references: Some(vec![super::to_owner_reference(eph)]),
-            labels: Some(super::make_common_labels(&name)),
+            owner_references: vec![super::to_owner_reference(eph)],
+            labels: super::make_common_labels(&name),
             ..ObjectMeta::default()
         },
         spec: Some(ServiceSpec {
             type_: Some("ClusterIP".into()),
-            ports: Some(vec![ServicePort {
+            ports: vec![ServicePort {
                 port: eph.spec.port,
                 target_port: Some(IntOrString::Int(eph.spec.port)),
                 ..ServicePort::default()
-            }]),
-            selector: Some(
-                vec![("app.kubernetes.io/name".to_owned(), name)]
-                    .into_iter()
-                    .collect::<BTreeMap<_, _>>(),
-            ),
+            }],
+            selector: vec![("app.kubernetes.io/name".to_owned(), name)]
+                .into_iter()
+                .collect::<BTreeMap<_, _>>(),
             ..ServiceSpec::default()
         }),
         ..Service::default()

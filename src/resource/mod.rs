@@ -1,7 +1,7 @@
 // https://github.com/GREsau/schemars/pull/65
 #![allow(clippy::field_reassign_with_default)]
 // From `CustomResource`
-#![allow(clippy::clippy::default_trait_access)]
+#![allow(clippy::default_trait_access)]
 
 use chrono::{DateTime, Utc};
 use kube::CustomResource;
@@ -156,7 +156,7 @@ where
     }
 }
 
-#[allow(clippy::clippy::trivially_copy_pass_by_ref)]
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn condition_status_ser<S>(status: &Option<bool>, s: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
