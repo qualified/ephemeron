@@ -1,0 +1,69 @@
+# Use envsubst to set IMAGE and HOST
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ephemeron-api
+  namespace: default
+  labels:
+    app: ephemeron-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ephemeron-api
+  template:
+    metadata:
+      labels:
+        app: ephemeron-api
+    spec:
+      serviceAccountName: ephemeron-api
+      containers:
+        - name: ephemeron-api
+          image: "${IMAGE}"
+          ports:
+            - containerPort: 3030
+          resources:
+            # Adjust these as needed
+            limits:
+              cpu: 100m
+              memory: 100Mi
+            requests:
+              cpu: 50m
+              memory: 50Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ephemeron-api
+  namespace: default
+  labels:
+    app: ephemeron-api
+spec:
+  selector:
+    app: ephemeron-api
+  ports:
+    - port: 3030
+      targetPort: 3030
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ephemeron-api
+  namespace: default
+  labels:
+    app: ephemeron-api
+spec:
+  rules:
+    - host: "${HOST}"
+      http:
+        paths:
+          - backend:
+              service:
+                name: ephemeron-api
+                port:
+                  number: 3030
+            path: /
+            pathType: Prefix

@@ -1,0 +1,34 @@
+# Use envsubst to set IMAGE and DOMAIN
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ephemeron-controller
+  namespace: default
+  labels:
+    app: ephemeron-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ephemeron-controller
+  template:
+    metadata:
+      labels:
+        app: ephemeron-controller
+    spec:
+      serviceAccountName: ephemeron-controller
+      containers:
+        - name: ephemeron-controller
+          image: "${IMAGE}"
+          env:
+            - name: EPHEMERON_DOMAIN
+              value: "${DOMAIN}"
+          resources:
+            # Adjust these as needed
+            limits:
+              cpu: 100m
+              memory: 100Mi
+            requests:
+              cpu: 50m
+              memory: 50Mi
