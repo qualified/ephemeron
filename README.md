@@ -148,6 +148,52 @@ curl c0nddh7s3ok4clog56n0.example.com | grep "<h1>Welcome to nginx!</h1>"
 # <h1>Welcome to nginx!</h1>
 ```
 
+## Deploying
+
+### k3d
+
+#### Push images to a local registry
+
+```bash
+# Create local registry first
+k3d registry create dev.localhost
+# Find the port
+PORT=$(docker port k3d-dev.localhost 5000/tcp | cut -d ':' -f 2)
+# Create a new cluster with the registry
+k3d cluster create dev --registry-use k3d-dev.localhost:$PORT
+```
+
+```bash
+docker buildx build --tag qualified/ephemeron-controller:latest --file ./k8s/controller/Dockerfile .
+docker tag qualified/ephemeron-controller:latest k3d-dev.localhost:$PORT/ephemeron-controller:latest
+docker push k3d-dev.localhost:$PORT/ephemeron-controller:latest
+```
+
+```bash
+docker buildx build --tag qualified/ephemeron-api:latest --file ./k8s/api/Dockerfile .
+docker tag qualified/ephemeron-api:latest k3d-dev.localhost:$PORT/ephemeron-api:latest
+docker push k3d-dev.localhost:$PORT/ephemeron-api:latest
+```
+#### Create Service Accounts
+
+```bash
+kubectl apply -f k8s/controller/sa.yaml
+kubectl apply -f k8s/api/sa.yaml
+```
+
+#### Create Deployments
+
+```bash
+LB_IP="$(kubectl get svc -o=jsonpath='{.status.loadBalancer.ingress[0].ip}' -n kube-system traefik)"
+export DOMAIN="LB_IP.sslip.io"
+export IMAGE=k3d-dev.localhost:$PORT/ephemeron-controller:latest
+envsubst < k8s/controller/deployment.yaml | kubectl apply -f -
+
+export IMAGE=k3d-dev.localhost:$PORT/ephemeron-api:latest
+export HOST="api.$DOMAIN"
+envsubst < k8s/api/deployment.yaml | kubectl apply -f -
+```
+
 ## Cleaning Up
 
 Delete all `Ephemeron`s. All the resources owned by them are deleted as well:
