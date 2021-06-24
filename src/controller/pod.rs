@@ -95,6 +95,7 @@ fn build_pod(eph: &Ephemeron) -> Pod {
                 // The default `Entrypoint` and `Cmd` are ignored.
                 // If `command` is not specified, the default `EntryPoint` and `Cmd` are used.
                 command: eph.spec.command.clone().unwrap_or_default(),
+                working_dir: eph.spec.working_dir.clone(),
                 ports: vec![ContainerPort {
                     container_port: eph.spec.port,
                     ..ContainerPort::default()

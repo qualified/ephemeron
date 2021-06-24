@@ -14,8 +14,7 @@ spec:
     singular: ephemeron
   scope: Cluster
   versions:
-    - additionalPrinterColumns: []
-      name: v1alpha1
+    - name: v1alpha1
       schema:
         openAPIV3Schema:
           description: "Auto-generated derived type for EphemeronSpec via `CustomResource`"
@@ -35,11 +34,24 @@ spec:
                 image:
                   description: The image to use.
                   type: string
+                ingressAnnotations:
+                  additionalProperties:
+                    type: string
+                  description: Ingress annotations.
+                  type: object
                 port:
                   description: The port to use.
                   maximum: 65535.0
                   minimum: 1.0
                   type: integer
+                tlsSecretName:
+                  description: The name of the TLS secret.
+                  nullable: true
+                  type: string
+                workingDir:
+                  description: The directory to run command in.
+                  nullable: true
+                  type: string
               required:
                 - expires
                 - image
