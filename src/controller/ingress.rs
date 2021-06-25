@@ -1,6 +1,6 @@
 use k8s_openapi::api::networking::v1::{
     HTTPIngressPath, HTTPIngressRuleValue, Ingress, IngressBackend, IngressRule,
-    IngressServiceBackend, IngressSpec, ServiceBackendPort,
+    IngressServiceBackend, IngressSpec, IngressTLS, ServiceBackendPort,
 };
 use kube::{
     api::{ObjectMeta, PostParams},
@@ -65,15 +65,23 @@ pub(super) async fn reconcile(
 
 fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
     let name = eph.name();
+    let tls = eph.spec.tls_secret_name.clone().map(|name| {
+        vec![IngressTLS {
+            hosts: vec![],
+            secret_name: Some(name),
+        }]
+    });
     Ingress {
         metadata: ObjectMeta {
             name: Some(name.clone()),
             namespace: Some(super::NS.into()),
             labels: super::make_common_labels(&name),
             owner_references: vec![super::to_owner_reference(eph)],
+            annotations: eph.spec.ingress_annotations.clone(),
             ..ObjectMeta::default()
         },
         spec: Some(IngressSpec {
+            tls: tls.unwrap_or_default(),
             rules: vec![IngressRule {
                 host: Some(format!("{}.{}", name, domain)),
                 http: Some(HTTPIngressRuleValue {

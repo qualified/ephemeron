@@ -28,9 +28,16 @@ pub struct EphemeronSpec {
     pub image: String,
     /// Optionally specify the command to use.
     pub command: Option<Vec<String>>,
+    /// The directory to run command in.
+    pub working_dir: Option<String>,
     /// The port to use.
     #[schemars(schema_with = "schemas::port")]
     pub port: i32,
+    /// The name of the TLS secret.
+    pub tls_secret_name: Option<String>,
+    /// Ingress annotations.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub ingress_annotations: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]
