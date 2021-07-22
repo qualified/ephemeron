@@ -21,41 +21,47 @@ spec:
           properties:
             spec:
               properties:
-                command:
-                  description: Optionally specify the command to use.
-                  items:
-                    type: string
-                  nullable: true
-                  type: array
                 expires:
                   description: The date and time to kill this service on.
                   format: date-time
                   type: string
-                image:
-                  description: The image to use.
-                  type: string
-                ingressAnnotations:
-                  additionalProperties:
-                    type: string
-                  description: Ingress annotations.
+                service:
+                  description: The service to create.
+                  properties:
+                    command:
+                      description: Optionally specify the command to use.
+                      items:
+                        type: string
+                      nullable: true
+                      type: array
+                    image:
+                      description: The image to use.
+                      type: string
+                    ingressAnnotations:
+                      additionalProperties:
+                        type: string
+                      description: Ingress annotations.
+                      type: object
+                    port:
+                      description: The port to use.
+                      maximum: 65535.0
+                      minimum: 1.0
+                      type: integer
+                    tlsSecretName:
+                      description: The name of the TLS secret.
+                      nullable: true
+                      type: string
+                    workingDir:
+                      description: The directory to run command in.
+                      nullable: true
+                      type: string
+                  required:
+                    - image
+                    - port
                   type: object
-                port:
-                  description: The port to use.
-                  maximum: 65535.0
-                  minimum: 1.0
-                  type: integer
-                tlsSecretName:
-                  description: The name of the TLS secret.
-                  nullable: true
-                  type: string
-                workingDir:
-                  description: The directory to run command in.
-                  nullable: true
-                  type: string
               required:
                 - expires
-                - image
-                - port
+                - service
               type: object
             status:
               nullable: true

@@ -24,6 +24,13 @@ mod schemas;
 pub struct EphemeronSpec {
     /// The date and time to kill this service on.
     pub expires: DateTime<Utc>,
+    /// The service to create.
+    pub service: EphemeronService,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EphemeronService {
     /// The image to use.
     pub image: String,
     /// Optionally specify the command to use.

@@ -6,4 +6,6 @@ mod controller;
 mod resource;
 
 pub use controller::run;
-pub use resource::{Ephemeron, EphemeronCondition, EphemeronSpec, EphemeronStatus};
+pub use resource::{
+    Ephemeron, EphemeronCondition, EphemeronService, EphemeronSpec, EphemeronStatus,
+};

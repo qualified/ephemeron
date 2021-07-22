@@ -65,7 +65,7 @@ pub(super) async fn reconcile(
 
 fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
     let name = eph.name();
-    let tls = eph.spec.tls_secret_name.clone().map(|name| {
+    let tls = eph.spec.service.tls_secret_name.clone().map(|name| {
         vec![IngressTLS {
             hosts: vec![],
             secret_name: Some(name),
@@ -77,7 +77,7 @@ fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
             namespace: Some(super::NS.into()),
             labels: super::make_common_labels(&name),
             owner_references: vec![super::to_owner_reference(eph)],
-            annotations: eph.spec.ingress_annotations.clone(),
+            annotations: eph.spec.service.ingress_annotations.clone(),
             ..ObjectMeta::default()
         },
         spec: Some(IngressSpec {
@@ -92,7 +92,7 @@ fn build_ingress(eph: &Ephemeron, domain: &str) -> Ingress {
                             service: Some(IngressServiceBackend {
                                 name: name.clone(),
                                 port: Some(ServiceBackendPort {
-                                    number: Some(eph.spec.port),
+                                    number: Some(eph.spec.service.port),
                                     name: None,
                                 }),
                             }),

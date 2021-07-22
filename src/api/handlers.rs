@@ -25,19 +25,45 @@ pub(crate) struct ErrorMessage {
 }
 
 #[tracing::instrument(skip(client), level = "debug")]
-pub(crate) async fn create(spec: EphemeronSpec, client: Client) -> Result<impl Reply, Infallible> {
-    // Generate unique URL safe id to use as the name.
-    let id = xid::new().to_string();
-    let api: Api<Ephemeron> = Api::all(client);
-    let pp = PostParams::default();
-    tracing::trace!("creating");
-    match api.create(&pp, &Ephemeron::new(&id, spec)).await {
-        Ok(_) => {
-            tracing::trace!("created");
-            let json = warp::reply::json(&Created { id });
-            Ok(warp::reply::with_status(json, StatusCode::ACCEPTED))
+pub(crate) async fn create_with_preset(
+    payload: super::PresetPayload,
+    presets: super::Presets,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
+    if let Some(preset) = presets.get(&payload.preset) {
+        if let Some(duration) = get_duration(&payload.duration) {
+            let preset = preset.clone();
+            let spec = EphemeronSpec {
+                expires: chrono::Utc::now() + duration,
+                service: preset,
+            };
+            let id = xid::new().to_string();
+            let eph = Ephemeron::new(&id, spec);
+            let api: Api<Ephemeron> = Api::all(client);
+            tracing::trace!("creating");
+            match api.create(&PostParams::default(), &eph).await {
+                Ok(_) => {
+                    tracing::trace!("created");
+                    let json = warp::reply::json(&Created { id });
+                    Ok(warp::reply::with_status(json, StatusCode::ACCEPTED))
+                }
+                Err(err) => Ok(error_json(err)),
+            }
+        } else {
+            Ok(warp::reply::with_status(
+                warp::reply::json(&ErrorMessage {
+                    message: format!("invalid duration {}", payload.duration),
+                }),
+                StatusCode::BAD_REQUEST,
+            ))
         }
-        Err(err) => Ok(error_json(err)),
+    } else {
+        Ok(warp::reply::with_status(
+            warp::reply::json(&ErrorMessage {
+                message: format!("preset {} not found", payload.preset),
+            }),
+            StatusCode::NOT_FOUND,
+        ))
     }
 }
 
@@ -95,4 +121,10 @@ fn error_json(err: kube::Error) -> warp::reply::WithStatus<warp::reply::Json> {
             warp::reply::with_status(json, status)
         }
     }
+}
+
+fn get_duration(duration: &str) -> Option<chrono::Duration> {
+    humantime::parse_duration(&duration)
+        .ok()
+        .and_then(|d| chrono::Duration::from_std(d).ok())
 }

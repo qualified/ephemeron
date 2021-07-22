@@ -12,10 +12,11 @@ apiVersion: ephemerons.qualified.io/v1alpha1
 metadata:
   name: "foo"
 spec:
-  # The name of the image to use.
-  image: "nginx"
-  # The exposed port to route to.
-  port: 80
+  service:
+    # The name of the image to use.
+    image: "nginx"
+    # The exposed port to route to.
+    port: 80
   # When to kill
   expires: "2021-03-01T00:00:00Z"
 ```
@@ -110,8 +111,8 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
 <details>
 <summary>Routes</summary>
 
-- `POST /`: Create new resource
-  - Payload is `EphemeronSpec`
+- `POST /`: Create a new service based on the preset.
+  - Payload is `{"preset": name, "duration": duration}`
   - Responds with `{"id": unique_id}`. Use this `id` to control the resource.
 - `GET /{id}`: Get the hostname
   - Responds with `{"host": hostname}`.
@@ -123,7 +124,7 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
 Start the server:
 
 ```bash
-cargo run --bin api
+EPHEMERON_CONFIG=k8s/api/config.yml cargo run --bin api
 ```
 
 Create some service:
@@ -132,7 +133,7 @@ curl \
     -X POST \
     http://localhost:3030/ \
     -H 'Content-Type: application/json' \
-    -d "{\"image\": \"nginx\", \"port\": 80, \"expires\": \"$(date -d "+30 minutes" -Iseconds --utc)\"}"
+    -d "{\"preset\": \"nginx\", \"duration\": \"30m\"}"
 # {"id": "c0nddh7s3ok4clog56n0"}
 ```
 

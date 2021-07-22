@@ -2,61 +2,67 @@
 //
 // Routes:
 //
-// - `POST /`: Create new resource. Responds with JSON `{"id": ""}`.
+// - `POST /`: Create new service based on a preset and duration string. Responds with JSON `{"id": ""}`.
 // - `GET /{id}` Get the host. Responds with JSON `{"host": ""}`. `host` is `null` unless `Available`.
 // - `DELETE /{id}`: Delete the resource and all of its children
 //
-// Admin Routes:
-//
-// - `GET /`: List of resources
-//
 // TODO Authentication
 // TODO Authorization: Only the user who created the resource can change them
-// TODO Allow extending
+// TODO Allow extending lifetime
 use std::convert::Infallible;
 
 use kube::Client;
 use warp::{Filter, Rejection, Reply};
 
-use crate::EphemeronSpec;
+mod config;
 mod handlers;
 
+pub use config::{Config, PresetPayload, Presets};
+
 #[must_use]
-pub fn new(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+pub fn new(
+    client: Client,
+    config: Option<Config>,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    let presets = config.map(|c| c.presets).unwrap_or_default();
     healthz()
-        .or(create(client.clone()))
+        .or(create_with_preset(client.clone(), presets))
         .or(get_host(client.clone()))
         .or(delete(client))
 }
 
 // GET /
 fn healthz() -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::get().and(warp::path::end()).map(|| "OK")
+    warp::path::end().and(warp::get()).map(|| "OK")
 }
 
 // POST /
-fn create(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::post()
-        .and(warp::path::end())
-        .and(json_body())
+fn create_with_preset(
+    client: Client,
+    presets: Presets,
+) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path::end()
+        .and(warp::post())
+        .and(json_body::<PresetPayload>())
+        .and(warp::any().map(move || presets.clone()))
         .and(with_client(client))
-        .and_then(handlers::create)
+        .and_then(handlers::create_with_preset)
 }
 
 // GET /:id
 fn get_host(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::get()
-        .and(warp::path::param::<String>())
+    warp::path::param::<String>()
         .and(warp::path::end())
+        .and(warp::get())
         .and(with_client(client))
         .and_then(handlers::get_host)
 }
 
 // DELETE /:id
 fn delete(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::delete()
-        .and(warp::path::param::<String>())
+    warp::path::param::<String>()
         .and(warp::path::end())
+        .and(warp::delete())
         .and(with_client(client))
         .and_then(handlers::delete)
 }
@@ -65,6 +71,9 @@ fn with_client(client: Client) -> impl Filter<Extract = (Client,), Error = Infal
     warp::any().map(move || client.clone())
 }
 
-fn json_body() -> impl Filter<Extract = (EphemeronSpec,), Error = Rejection> + Clone {
+fn json_body<T>() -> impl Filter<Extract = (T,), Error = Rejection> + Clone
+where
+    T: serde::de::DeserializeOwned + Send,
+{
     warp::body::content_length_limit(1024 * 1024).and(warp::body::json())
 }

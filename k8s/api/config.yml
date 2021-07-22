@@ -1,0 +1,4 @@
+presets:
+  nginx:
+    image: "nginx"
+    port: 80

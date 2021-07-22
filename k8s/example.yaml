@@ -3,7 +3,8 @@ apiVersion: qualified.io/v1alpha1
 metadata:
   name: "example"
 spec:
-  image: "nginx"
-  port: 80
+  service:
+    image: "nginx"
+    port: 80
   # Use `envsubst` to set `expires`
   expires: "${EXPIRES}"

@@ -24,3 +24,4 @@ tokio = { version = "1.6.1", features = ["macros", "rt", "rt-multi-thread"] }
 
 warp = "0.3.1"
 xid = "1.0.0"
+humantime = "2.1.0"
