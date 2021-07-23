@@ -1,7 +1,8 @@
 use std::convert::Infallible;
 
+use chrono::{DateTime, Utc};
 use kube::{
-    api::{DeleteParams, PostParams, PropagationPolicy},
+    api::{DeleteParams, Patch, PatchParams, PostParams, PropagationPolicy},
     Api, Client,
 };
 use serde::Serialize;
@@ -17,6 +18,12 @@ pub(crate) struct Created {
 #[derive(Serialize)]
 pub(crate) struct HostInfo {
     host: Option<String>,
+    expires: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ExpiryInfo {
+    expires: DateTime<Utc>,
 }
 
 #[derive(Serialize)]
@@ -68,12 +75,49 @@ pub(crate) async fn create_with_preset(
 }
 
 #[tracing::instrument(skip(client), level = "debug")]
+pub(crate) async fn patch(
+    id: String,
+    payload: super::PatchPayload,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
+    if let Some(duration) = get_duration(&payload.duration) {
+        let patch = serde_json::json!({
+            "spec": {
+                "expires": chrono::Utc::now() + duration,
+            },
+        });
+        let api: Api<Ephemeron> = Api::all(client);
+        match api
+            .patch(&id, &PatchParams::default(), &Patch::Merge(patch))
+            .await
+        {
+            Ok(eph) => {
+                let json = warp::reply::json(&ExpiryInfo {
+                    expires: eph.spec.expires,
+                });
+                Ok(warp::reply::with_status(json, StatusCode::OK))
+            }
+            Err(err) => Ok(error_json(err)),
+        }
+    } else {
+        Ok(warp::reply::with_status(
+            warp::reply::json(&ErrorMessage {
+                message: format!("invalid duration {}", payload.duration),
+            }),
+            StatusCode::BAD_REQUEST,
+        ))
+    }
+}
+
+#[tracing::instrument(skip(client), level = "debug")]
 pub(crate) async fn get_host(id: String, client: Client) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
     match api.get(&id).await {
         Ok(eph) => {
-            let host = eph.metadata.annotations.get("host").cloned();
-            let json = warp::reply::json(&HostInfo { host });
+            let json = warp::reply::json(&HostInfo {
+                host: eph.metadata.annotations.get("host").cloned(),
+                expires: eph.spec.expires,
+            });
             Ok(warp::reply::with_status(json, StatusCode::OK))
         }
         Err(err) => Ok(error_json(err)),

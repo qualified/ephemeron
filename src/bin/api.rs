@@ -30,7 +30,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cors = warp::cors()
         .allow_any_origin()
         .allow_headers(&[header::AUTHORIZATION, header::CONTENT_TYPE])
-        .allow_methods(&[Method::POST, Method::GET, Method::DELETE, Method::OPTIONS]);
+        .allow_methods(&[
+            Method::DELETE,
+            Method::GET,
+            Method::OPTIONS,
+            Method::PATCH,
+            Method::POST,
+        ]);
     let api = ephemeron::api::new(client, config).with(cors);
     warp::serve(api).run(([0, 0, 0, 0], 3030)).await;
     Ok(())

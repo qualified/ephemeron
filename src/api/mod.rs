@@ -3,7 +3,9 @@
 // Routes:
 //
 // - `POST /`: Create new service based on a preset and duration string. Responds with JSON `{"id": ""}`.
-// - `GET /{id}` Get the host. Responds with JSON `{"host": ""}`. `host` is `null` unless `Available`.
+// - `GET /{id}`: Get the host. Responds with JSON `{"host": "", "expires": timestamp}`.
+//   `host` is `null` unless `Available`.
+// - `PATCH /{id}`: Change when the resource expires with a duration string.
 // - `DELETE /{id}`: Delete the resource and all of its children
 //
 // TODO Authentication
@@ -19,6 +21,13 @@ mod handlers;
 
 pub use config::{Config, PresetPayload, Presets};
 
+/// Payload for patching expiry.
+#[derive(serde::Deserialize, Debug, PartialEq, Clone)]
+pub struct PatchPayload {
+    /// The new duration to expire after.
+    pub duration: String,
+}
+
 #[must_use]
 pub fn new(
     client: Client,
@@ -28,6 +37,7 @@ pub fn new(
     healthz()
         .or(create_with_preset(client.clone(), presets))
         .or(get_host(client.clone()))
+        .or(patch(client.clone()))
         .or(delete(client))
 }
 
@@ -47,6 +57,16 @@ fn create_with_preset(
         .and(warp::any().map(move || presets.clone()))
         .and(with_client(client))
         .and_then(handlers::create_with_preset)
+}
+
+// PATCH /:id
+fn patch(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path::param::<String>()
+        .and(warp::path::end())
+        .and(warp::patch())
+        .and(json_body::<PatchPayload>())
+        .and(with_client(client))
+        .and_then(handlers::patch)
 }
 
 // GET /:id
