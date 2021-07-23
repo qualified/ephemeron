@@ -16,14 +16,28 @@ use std::convert::Infallible;
 use kube::Client;
 use warp::{Filter, Rejection, Reply};
 
-mod config;
 mod handlers;
 
-pub use config::{Config, PresetPayload, Presets};
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct Config {
+    #[serde(default)]
+    pub presets: Presets,
+}
+
+pub type Presets = std::collections::BTreeMap<String, crate::EphemeronService>;
+
+/// Payload for creating service with a preset.
+#[derive(serde::Deserialize, Debug, PartialEq, Clone)]
+struct PresetPayload {
+    /// The name of the preset to use.
+    pub preset: String,
+    /// The duration to expire the service after.
+    pub duration: String,
+}
 
 /// Payload for patching expiry.
 #[derive(serde::Deserialize, Debug, PartialEq, Clone)]
-pub struct PatchPayload {
+struct PatchPayload {
     /// The new duration to expire after.
     pub duration: String,
 }
@@ -35,54 +49,54 @@ pub fn new(
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     let presets = config.map(|c| c.presets).unwrap_or_default();
     healthz()
-        .or(create_with_preset(client.clone(), presets))
-        .or(get_host(client.clone()))
+        .or(create(client.clone(), presets))
+        .or(get(client.clone()))
         .or(patch(client.clone()))
         .or(delete(client))
 }
 
 // GET /
 fn healthz() -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::path::end().and(warp::get()).map(|| "OK")
+    warp::get().and(warp::path::end().map(|| "OK"))
 }
 
 // POST /
-fn create_with_preset(
+fn create(
     client: Client,
     presets: Presets,
 ) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::path::end()
-        .and(warp::post())
+    warp::post()
+        .and(warp::path::end())
         .and(json_body::<PresetPayload>())
         .and(warp::any().map(move || presets.clone()))
         .and(with_client(client))
-        .and_then(handlers::create_with_preset)
+        .and_then(handlers::create)
 }
 
 // PATCH /:id
 fn patch(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::path::param::<String>()
+    warp::patch()
+        .and(warp::path::param::<String>())
         .and(warp::path::end())
-        .and(warp::patch())
         .and(json_body::<PatchPayload>())
         .and(with_client(client))
         .and_then(handlers::patch)
 }
 
 // GET /:id
-fn get_host(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::path::param::<String>()
+fn get(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::get()
+        .and(warp::path::param::<String>())
         .and(warp::path::end())
-        .and(warp::get())
         .and(with_client(client))
-        .and_then(handlers::get_host)
+        .and_then(handlers::get)
 }
 
 // DELETE /:id
 fn delete(client: Client) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
-    warp::path::param::<String>()
+    warp::delete()
+        .and(warp::path::param::<String>())
         .and(warp::path::end())
-        .and(warp::delete())
         .and(with_client(client))
         .and_then(handlers::delete)
 }
