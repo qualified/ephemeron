@@ -1,98 +1,244 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, sync::Arc};
 
+use chrono::{DateTime, Utc};
 use kube::{
-    api::{DeleteParams, PostParams, PropagationPolicy},
-    Api, Client,
+    api::{DeleteParams, Patch, PatchParams, PostParams, PropagationPolicy},
+    Api, Client, ResourceExt,
 };
-use serde::Serialize;
-use warp::{http::StatusCode, Reply};
+use snafu::{OptionExt, ResultExt, Snafu};
+use warp::{http::StatusCode, reply, Reply};
 
+use super::{json_error_response, json_response};
 use crate::{Ephemeron, EphemeronSpec};
 
-#[derive(Serialize)]
-pub(crate) struct Created {
+#[derive(Debug, Snafu)]
+pub(super) enum Error {
+    #[snafu(display("preset {} not found", name))]
+    PresetLookup { name: String },
+
+    #[snafu(display("duration {} is invalid", duration))]
+    InvalidDuration { duration: String },
+
+    #[snafu(display("failed to parse duration {}", duration))]
+    ParseDuration {
+        duration: String,
+        source: humantime::DurationError,
+    },
+
+    #[snafu(display("failed to create resource: {}", source))]
+    CreateResource { source: kube::Error },
+
+    #[snafu(display("failed to update resouce duration: {}", source))]
+    PatchDuration { source: kube::Error },
+
+    #[snafu(display("failed to get resource: {}", source))]
+    GetResource { source: kube::Error },
+
+    #[snafu(display("failed to delete: {}", source))]
+    DeleteResource { source: kube::Error },
+
+    #[snafu(display("forbidden"))]
+    Forbidden,
+}
+
+impl Reply for Error {
+    fn into_response(self) -> reply::Response {
+        #[allow(clippy::match_same_arms)]
+        match self {
+            err @ Error::PresetLookup { .. } => {
+                json_error_response(err.to_string(), StatusCode::NOT_FOUND)
+            }
+            err @ Error::ParseDuration { .. } => {
+                json_error_response(err.to_string(), StatusCode::BAD_REQUEST)
+            }
+            err @ Error::InvalidDuration { .. } => {
+                json_error_response(err.to_string(), StatusCode::BAD_REQUEST)
+            }
+
+            Error::Forbidden => json_error_response("Forbidden", StatusCode::FORBIDDEN),
+
+            Error::GetResource { source }
+            | Error::CreateResource { source }
+            | Error::PatchDuration { source } => match source {
+                kube::Error::Api(err) => {
+                    tracing::debug!("Kube Api error: {:?}", err);
+                    json_error_response(
+                        err.message,
+                        StatusCode::from_u16(err.code).unwrap_or(StatusCode::BAD_REQUEST),
+                    )
+                }
+
+                err => {
+                    tracing::warn!("Unexpected Error: {:?}", err);
+                    json_error_response(
+                        "Internal Server Error".to_owned(),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )
+                }
+            },
+
+            Error::DeleteResource { source } => match source {
+                kube::Error::Api(err) => StatusCode::from_u16(err.code)
+                    .unwrap_or(StatusCode::BAD_REQUEST)
+                    .into_response(),
+
+                err => {
+                    tracing::warn!("Unexpected Error: {:?}", err);
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
+            },
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct Created {
     id: String,
 }
 
-#[derive(Serialize)]
-pub(crate) struct HostInfo {
+#[derive(serde::Serialize)]
+struct HostInfo {
     host: Option<String>,
+    expires: DateTime<Utc>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct ErrorMessage {
-    message: String,
+#[derive(serde::Serialize)]
+struct Expiration {
+    expires: DateTime<Utc>,
 }
 
-#[tracing::instrument(skip(client), level = "debug")]
-pub(crate) async fn create(spec: EphemeronSpec, client: Client) -> Result<impl Reply, Infallible> {
-    // Generate unique URL safe id to use as the name.
+// Use this instead of `?` to avoid rejecting.
+macro_rules! warp_try {
+    ($expr:expr) => {
+        match $expr {
+            Ok(val) => val,
+            Err(err) => {
+                return Ok(err.into_response());
+            }
+        }
+    };
+}
+
+const CREATED_BY: &str = "ephemerons.qualified.io/created-by";
+
+#[tracing::instrument(skip(client, presets), level = "debug")]
+pub(super) async fn create(
+    claims: super::auth::Claims,
+    payload: super::PresetPayload,
+    presets: Arc<super::Presets>,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
+    let preset = warp_try!(presets.get(&payload.preset).with_context(|| PresetLookup {
+        name: payload.preset.clone(),
+    }));
+    let duration = warp_try!(get_duration(&payload.duration));
+
     let id = xid::new().to_string();
+    let mut eph = Ephemeron::new(
+        &id,
+        EphemeronSpec {
+            expires: chrono::Utc::now() + duration,
+            service: preset.clone(),
+        },
+    );
+    eph.metadata
+        .annotations
+        .insert(CREATED_BY.to_owned(), claims.sub);
+
     let api: Api<Ephemeron> = Api::all(client);
-    let pp = PostParams::default();
-    tracing::trace!("creating");
-    match api.create(&pp, &Ephemeron::new(&id, spec)).await {
-        Ok(_) => {
-            tracing::trace!("created");
-            let json = warp::reply::json(&Created { id });
-            Ok(warp::reply::with_status(json, StatusCode::ACCEPTED))
-        }
-        Err(err) => Ok(error_json(err)),
-    }
+    let _res = warp_try!(api
+        .create(&PostParams::default(), &eph)
+        .await
+        .context(CreateResource));
+    Ok(json_response(&Created { id }, StatusCode::ACCEPTED))
 }
 
 #[tracing::instrument(skip(client), level = "debug")]
-pub(crate) async fn get_host(id: String, client: Client) -> Result<impl Reply, Infallible> {
+pub(super) async fn patch(
+    id: String,
+    claims: super::auth::Claims,
+    payload: super::PatchPayload,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
-    match api.get(&id).await {
-        Ok(eph) => {
-            let host = eph.metadata.annotations.get("host").cloned();
-            let json = warp::reply::json(&HostInfo { host });
-            Ok(warp::reply::with_status(json, StatusCode::OK))
-        }
-        Err(err) => Ok(error_json(err)),
+    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    if !has_access(&eph, &claims.sub) {
+        return Ok(Error::Forbidden.into_response());
     }
+
+    let duration = warp_try!(get_duration(&payload.duration));
+    let patch = Patch::Merge(serde_json::json!({
+        "spec": {
+            "expires": chrono::Utc::now() + duration,
+        },
+    }));
+    let eph = warp_try!(api
+        .patch(&id, &PatchParams::default(), &patch)
+        .await
+        .context(PatchDuration));
+    Ok(json_response(
+        &Expiration {
+            expires: eph.spec.expires,
+        },
+        StatusCode::OK,
+    ))
 }
 
 #[tracing::instrument(skip(client), level = "debug")]
-pub(crate) async fn delete(id: String, client: Client) -> Result<impl Reply, Infallible> {
+pub(super) async fn get(
+    id: String,
+    claims: super::auth::Claims,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
+    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    if !has_access(&eph, &claims.sub) {
+        return Ok(Error::Forbidden.into_response());
+    }
+
+    Ok(json_response(
+        &HostInfo {
+            host: eph.metadata.annotations.get("host").cloned(),
+            expires: eph.spec.expires,
+        },
+        StatusCode::OK,
+    ))
+}
+
+#[tracing::instrument(skip(client), level = "debug")]
+pub(super) async fn delete(
+    id: String,
+    claims: super::auth::Claims,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
+    let api: Api<Ephemeron> = Api::all(client);
+    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    if !has_access(&eph, &claims.sub) {
+        return Ok(Error::Forbidden.into_response());
+    }
+
     let dp = DeleteParams {
         propagation_policy: Some(PropagationPolicy::Background),
         ..DeleteParams::default()
     };
-    match api.delete(&id, &dp).await {
-        Ok(_) => Ok(StatusCode::NO_CONTENT),
-
-        Err(kube::Error::Api(err)) => {
-            Ok(StatusCode::from_u16(err.code).unwrap_or(StatusCode::BAD_REQUEST))
-        }
-
-        Err(err) => {
-            tracing::warn!("Unexpected Error: {:?}", err);
-            Ok(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
+    let _res = warp_try!(api.delete(&id, &dp).await.context(DeleteResource));
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-fn error_json(err: kube::Error) -> warp::reply::WithStatus<warp::reply::Json> {
-    match err {
-        kube::Error::Api(err) => {
-            tracing::debug!("Kube Api error: {:?}", err);
-            let status = StatusCode::from_u16(err.code).unwrap_or(StatusCode::BAD_REQUEST);
-            let json = warp::reply::json(&ErrorMessage {
-                message: err.message,
-            });
-            warp::reply::with_status(json, status)
-        }
+fn get_duration(duration: &str) -> Result<chrono::Duration, Error> {
+    humantime::parse_duration(duration)
+        .with_context(|| ParseDuration {
+            duration: duration.to_owned(),
+        })
+        .and_then(|d| {
+            chrono::Duration::from_std(d).map_err(|_| Error::InvalidDuration {
+                duration: duration.to_owned(),
+            })
+        })
+}
 
-        err => {
-            tracing::warn!("Unexpected Error: {:?}", err);
-            let status = StatusCode::INTERNAL_SERVER_ERROR;
-            let json = warp::reply::json(&ErrorMessage {
-                message: status.canonical_reason().unwrap().to_owned(),
-            });
-            warp::reply::with_status(json, status)
-        }
-    }
+fn has_access(eph: &Ephemeron, sub: &str) -> bool {
+    eph.annotations()
+        .get(CREATED_BY)
+        .map_or(false, |by| by == sub)
 }

@@ -1,0 +1,8 @@
+presets:
+  nginx:
+    image: "nginx"
+    port: 80
+
+# Allowed apps
+apps:
+  example: apikey

@@ -12,10 +12,11 @@ apiVersion: ephemerons.qualified.io/v1alpha1
 metadata:
   name: "foo"
 spec:
-  # The name of the image to use.
-  image: "nginx"
-  # The exposed port to route to.
-  port: 80
+  service:
+    # The name of the image to use.
+    image: "nginx"
+    # The exposed port to route to.
+    port: 80
   # When to kill
   expires: "2021-03-01T00:00:00Z"
 ```
@@ -105,25 +106,39 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
 
 ### Web API
 
-> DO NOT EXPOSE THIS TO PUBLIC
-
 <details>
 <summary>Routes</summary>
 
-- `POST /`: Create new resource
-  - Payload is `EphemeronSpec`
-  - Responds with `{"id": unique_id}`. Use this `id` to control the resource.
-- `GET /{id}`: Get the hostname
-  - Responds with `{"host": hostname}`.
-  - `hostname` is a string `{id}.{domain}` when available. Otherwise, `null`.
+- `POST /`: Create a new service based on `preset` specified in config that lives for `duration`.
+  - Request `{preset: String, duration: String}`. Duration is a string like `5m`.
+  - Response `{id: String}`. Use this `id` to control the resource.
+- `GET /{id}`: Get the hostname of the service if available.
+  - Response `{host: Option<String>}`. `host` is a string `{id}.{domain}` when available. Otherwise, `null`.
+- `PATCH /{id}`: Update the expiration.
+  - Request `{duration: String}`. Duration string like `5m`.
+  - Response `{expires: DateTime<Utc>}`. The new expiration date time.
 - `DELETE /{id}`: Delete the resource and any resources it owns.
+- `POST /auth`: Authenticate with credentials set in config to get token. Other routes requires `Authorization: Bearer $TOKEN`.
+  - Designed to be used by some backend service to authenticate on behalf of its user. `key` should be kept secret.
+  - Request `{app: String, key: String, uid: String}`. `uid` must be unique within `app`.
+  - Response `{token: String}`. `token` is a JWT with `sub` set to `{uid}@{app}`.
 
 </details>
 
 Start the server:
 
 ```bash
-cargo run --bin api
+EPHEMERON_CONFIG=k8s/api/config.yml JWT_SECRET=secret cargo run --bin api
+```
+
+Get token using `app` and `key` set in config:
+
+```bash
+curl \
+    -X POST \
+    http://localhost:3030/auth \
+    -H 'Content-Type: application/json' \
+    -d "{\"app\": \"example\", \"key\": \"apikey\", \"uid\": \"user\"}"
 ```
 
 Create some service:
@@ -132,13 +147,14 @@ curl \
     -X POST \
     http://localhost:3030/ \
     -H 'Content-Type: application/json' \
-    -d "{\"image\": \"nginx\", \"port\": 80, \"expires\": \"$(date -d "+30 minutes" -Iseconds --utc)\"}"
+    -H "Authorization: Bearer $TOKEN" \
+    -d "{\"preset\": \"nginx\", \"duration\": \"30m\"}"
 # {"id": "c0nddh7s3ok4clog56n0"}
 ```
 
 Get the host. (There's no convenient way to wait until it's ready at the moment and `host` is `null` when it's not ready.)
 ```bash
-curl localhost:3030/c0nddh7s3ok4clog56n0
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3030/c0nddh7s3ok4clog56n0
 # {"host": "c0nddh7s3ok4clog56n0.example.com"}
 ```
 

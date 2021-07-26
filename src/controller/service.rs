@@ -76,8 +76,8 @@ fn build_service(eph: &Ephemeron) -> Service {
         spec: Some(ServiceSpec {
             type_: Some("ClusterIP".into()),
             ports: vec![ServicePort {
-                port: eph.spec.port,
-                target_port: Some(IntOrString::Int(eph.spec.port)),
+                port: eph.spec.service.port,
+                target_port: Some(IntOrString::Int(eph.spec.service.port)),
                 ..ServicePort::default()
             }],
             selector: vec![("app.kubernetes.io/name".to_owned(), name)]
