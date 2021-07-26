@@ -19,7 +19,7 @@ pub enum Error {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info,ephemeron=debug".to_owned());
+    let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_span_events(FmtSpan::CLOSE)
@@ -42,8 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get_config() -> Result<Option<Config>, Error> {
+fn get_config() -> Result<Config, Error> {
     let config_path = std::env::var("EPHEMERON_CONFIG").unwrap_or_else(|_| "config.yml".to_owned());
     let config = std::fs::read(config_path).context(ReadConfig)?;
-    Ok(Some(serde_yaml::from_slice(&config).context(ParseConfig)?))
+    serde_yaml::from_slice(&config).context(ParseConfig)
 }

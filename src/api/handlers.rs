@@ -1,13 +1,14 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use kube::{
     api::{DeleteParams, Patch, PatchParams, PostParams, PropagationPolicy},
-    Api, Client,
+    Api, Client, ResourceExt,
 };
 use snafu::{OptionExt, ResultExt, Snafu};
 use warp::{http::StatusCode, reply, Reply};
 
+use super::{json_error_response, json_response};
 use crate::{Ephemeron, EphemeronSpec};
 
 #[derive(Debug, Snafu)]
@@ -35,6 +36,9 @@ pub(super) enum Error {
 
     #[snafu(display("failed to delete: {}", source))]
     DeleteResource { source: kube::Error },
+
+    #[snafu(display("forbidden"))]
+    Forbidden,
 }
 
 impl Reply for Error {
@@ -50,6 +54,8 @@ impl Reply for Error {
             err @ Error::InvalidDuration { .. } => {
                 json_error_response(err.to_string(), StatusCode::BAD_REQUEST)
             }
+
+            Error::Forbidden => json_error_response("Forbidden", StatusCode::FORBIDDEN),
 
             Error::GetResource { source }
             | Error::CreateResource { source }
@@ -101,11 +107,6 @@ struct Expiration {
     expires: DateTime<Utc>,
 }
 
-#[derive(serde::Serialize)]
-struct ErrorMessage {
-    message: String,
-}
-
 // Use this instead of `?` to avoid rejecting.
 macro_rules! warp_try {
     ($expr:expr) => {
@@ -118,10 +119,13 @@ macro_rules! warp_try {
     };
 }
 
-#[tracing::instrument(skip(client), level = "debug")]
+const CREATED_BY: &str = "ephemerons.qualified.io/created-by";
+
+#[tracing::instrument(skip(client, presets), level = "debug")]
 pub(super) async fn create(
+    claims: super::auth::Claims,
     payload: super::PresetPayload,
-    presets: super::Presets,
+    presets: Arc<super::Presets>,
     client: Client,
 ) -> Result<impl Reply, Infallible> {
     let preset = warp_try!(presets.get(&payload.preset).with_context(|| PresetLookup {
@@ -130,36 +134,44 @@ pub(super) async fn create(
     let duration = warp_try!(get_duration(&payload.duration));
 
     let id = xid::new().to_string();
-    let eph = Ephemeron::new(
+    let mut eph = Ephemeron::new(
         &id,
         EphemeronSpec {
             expires: chrono::Utc::now() + duration,
             service: preset.clone(),
         },
     );
+    eph.metadata
+        .annotations
+        .insert(CREATED_BY.to_owned(), claims.sub);
+
     let api: Api<Ephemeron> = Api::all(client);
-    tracing::trace!("creating");
     let _res = warp_try!(api
         .create(&PostParams::default(), &eph)
         .await
         .context(CreateResource));
-    tracing::trace!("created");
     Ok(json_response(&Created { id }, StatusCode::ACCEPTED))
 }
 
 #[tracing::instrument(skip(client), level = "debug")]
 pub(super) async fn patch(
     id: String,
+    claims: super::auth::Claims,
     payload: super::PatchPayload,
     client: Client,
 ) -> Result<impl Reply, Infallible> {
+    let api: Api<Ephemeron> = Api::all(client);
+    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    if !has_access(&eph, &claims.sub) {
+        return Ok(Error::Forbidden.into_response());
+    }
+
     let duration = warp_try!(get_duration(&payload.duration));
     let patch = Patch::Merge(serde_json::json!({
         "spec": {
             "expires": chrono::Utc::now() + duration,
         },
     }));
-    let api: Api<Ephemeron> = Api::all(client);
     let eph = warp_try!(api
         .patch(&id, &PatchParams::default(), &patch)
         .await
@@ -173,9 +185,17 @@ pub(super) async fn patch(
 }
 
 #[tracing::instrument(skip(client), level = "debug")]
-pub(super) async fn get(id: String, client: Client) -> Result<impl Reply, Infallible> {
+pub(super) async fn get(
+    id: String,
+    claims: super::auth::Claims,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
     let eph = warp_try!(api.get(&id).await.context(GetResource));
+    if !has_access(&eph, &claims.sub) {
+        return Ok(Error::Forbidden.into_response());
+    }
+
     Ok(json_response(
         &HostInfo {
             host: eph.metadata.annotations.get("host").cloned(),
@@ -186,8 +206,17 @@ pub(super) async fn get(id: String, client: Client) -> Result<impl Reply, Infall
 }
 
 #[tracing::instrument(skip(client), level = "debug")]
-pub(super) async fn delete(id: String, client: Client) -> Result<impl Reply, Infallible> {
+pub(super) async fn delete(
+    id: String,
+    claims: super::auth::Claims,
+    client: Client,
+) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
+    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    if !has_access(&eph, &claims.sub) {
+        return Ok(Error::Forbidden.into_response());
+    }
+
     let dp = DeleteParams {
         propagation_policy: Some(PropagationPolicy::Background),
         ..DeleteParams::default()
@@ -208,10 +237,8 @@ fn get_duration(duration: &str) -> Result<chrono::Duration, Error> {
         })
 }
 
-fn json_response<T: serde::Serialize>(res: &T, status: StatusCode) -> reply::Response {
-    reply::with_status(reply::json(res), status).into_response()
-}
-
-fn json_error_response(message: String, status: StatusCode) -> reply::Response {
-    reply::with_status(reply::json(&ErrorMessage { message }), status).into_response()
+fn has_access(eph: &Ephemeron, sub: &str) -> bool {
+    eph.annotations()
+        .get(CREATED_BY)
+        .map_or(false, |by| by == sub)
 }
