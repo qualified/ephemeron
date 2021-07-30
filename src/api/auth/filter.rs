@@ -35,7 +35,7 @@ pub fn with_authorization() -> impl Filter<Extract = (Claims,), Error = Rejectio
                 Ok(token) => token,
             };
 
-            match decode_jwt(&token) {
+            match decode_jwt(token) {
                 Err(err) => Err(reject::custom(err)),
                 Ok(claims) => Ok(claims),
             }

@@ -144,6 +144,7 @@ where
     warp::body::content_length_limit(1024 * 1024).and(warp::body::json())
 }
 
+#[allow(clippy::unused_async)]
 async fn handle_rejection(err: Rejection) -> Result<impl Reply, Rejection> {
     let (message, status) = if err.is_not_found() {
         ("Not Found", StatusCode::NOT_FOUND)

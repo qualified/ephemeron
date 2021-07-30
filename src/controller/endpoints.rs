@@ -70,7 +70,7 @@ pub(super) async fn reconcile(
                         .await
                         .context(HostAnnotation)?;
 
-                    conditions::set_available(&eph, client, Some(available))
+                    conditions::set_available(eph, client, Some(available))
                         .await
                         .context(UpdateCondition)?;
 
