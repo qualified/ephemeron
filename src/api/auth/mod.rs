@@ -68,6 +68,7 @@ pub struct TokenResponse {
 // The token's subject is `{uid}@{app}`, and it's valid for 5 minutes.
 // The api key must be kept secret.
 // Use this token to make requests to create and update resources.
+#[allow(clippy::unused_async)]
 pub async fn token(apps: Arc<Apps>, request: TokenRequest) -> Result<impl Reply, Infallible> {
     let key = match apps.get(&request.app).context(AppLookup) {
         Err(err) => return Ok(err.into_response()),

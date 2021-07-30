@@ -37,7 +37,7 @@ pub(super) async fn reconcile(
         Ok(pod) => match (eph.is_pod_ready(), pod_is_ready(&pod)) {
             (a, b) if a == b => Ok(None),
             (_, actual) => {
-                conditions::set_pod_ready(&eph, ctx.get_ref().client.clone(), Some(actual))
+                conditions::set_pod_ready(eph, ctx.get_ref().client.clone(), Some(actual))
                     .await
                     .context(UpdateCondition)?;
                 Ok(Some(ReconcilerAction {
@@ -47,13 +47,13 @@ pub(super) async fn reconcile(
         },
 
         Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            conditions::set_pod_ready(&eph, client.clone(), Some(false))
+            conditions::set_pod_ready(eph, client.clone(), Some(false))
                 .await
                 .context(UpdateCondition)?;
-            conditions::set_available(&eph, client.clone(), Some(false))
+            conditions::set_available(eph, client.clone(), Some(false))
                 .await
                 .context(UpdateCondition)?;
-            let pod = build_pod(&eph);
+            let pod = build_pod(eph);
             match pods.create(&PostParams::default(), &pod).await {
                 Ok(_) => Ok(Some(ReconcilerAction {
                     requeue_after: None,

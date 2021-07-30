@@ -43,7 +43,7 @@ pub(super) async fn reconcile(
         Ok(_) => Ok(None),
         Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
             debug!("Creating Service");
-            let svc = build_service(&eph);
+            let svc = build_service(eph);
             match svcs.create(&PostParams::default(), &svc).await {
                 Ok(_) => Ok(Some(ReconcilerAction {
                     requeue_after: None,

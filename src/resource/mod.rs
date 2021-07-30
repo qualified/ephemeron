@@ -164,7 +164,7 @@ where
         "True" => Ok(Some(true)),
         "False" => Ok(Some(false)),
         other => Err(serde::de::Error::invalid_value(
-            serde::de::Unexpected::Str(&other),
+            serde::de::Unexpected::Str(other),
             &"Unknown or True or False",
         )),
     }

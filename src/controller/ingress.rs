@@ -41,7 +41,7 @@ pub(super) async fn reconcile(
 
         Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
             debug!("Creating Ingress");
-            let ing = build_ingress(&eph, ctx.get_ref().domain.as_ref());
+            let ing = build_ingress(eph, ctx.get_ref().domain.as_ref());
             match ings.create(&PostParams::default(), &ing).await {
                 Ok(_) => Ok(Some(ReconcilerAction {
                     requeue_after: None,
