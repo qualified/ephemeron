@@ -100,6 +100,7 @@ struct Created {
 struct HostInfo {
     host: Option<String>,
     expires: DateTime<Utc>,
+    tls: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -200,6 +201,7 @@ pub(super) async fn get(
         &HostInfo {
             host: eph.metadata.annotations.get("host").cloned(),
             expires: eph.spec.expires,
+            tls: eph.spec.service.tls_secret_name.is_some(),
         },
         StatusCode::OK,
     ))

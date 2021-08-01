@@ -113,7 +113,10 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
   - Request `{preset: String, duration: String}`. Duration is a string like `5m`.
   - Response `{id: String}`. Use this `id` to control the resource.
 - `GET /{id}`: Get the hostname of the service if available.
-  - Response `{host: Option<String>}`. `host` is a string `{id}.{domain}` when available. Otherwise, `null`.
+  - Response `{host: Option<String>, expires: DateTime<Utc>, tls: bool}`.
+    - `host` is a string `{id}.{domain}` when available. Otherwise, `null`.
+    - `expires` is when the service is destroyed.
+    - `tls` is true if TLS is configured.
 - `PATCH /{id}`: Update the expiration.
   - Request `{duration: String}`. Duration string like `5m`.
   - Response `{expires: DateTime<Utc>}`. The new expiration date time.
