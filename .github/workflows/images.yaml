@@ -34,6 +34,8 @@ jobs:
           file: k8s/controller/Dockerfile
           push: true
           tags: ghcr.io/qualified/ephemeron-controller:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push api image
         uses: docker/build-push-action@v2
@@ -42,3 +44,5 @@ jobs:
           file: k8s/api/Dockerfile
           push: true
           tags: ghcr.io/qualified/ephemeron-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
