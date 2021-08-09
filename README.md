@@ -131,7 +131,7 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
 Start the server:
 
 ```bash
-EPHEMERON_CONFIG=k8s/api/config.yml JWT_SECRET=secret cargo run --bin api
+EPHEMERON_CONFIG=k8s/api/config.yaml JWT_SECRET=secret cargo run --bin api
 ```
 
 Get token using `app` and `key` set in config:

@@ -43,7 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn get_config() -> Result<Config, Error> {
-    let config_path = std::env::var("EPHEMERON_CONFIG").unwrap_or_else(|_| "config.yml".to_owned());
+    let config_path =
+        std::env::var("EPHEMERON_CONFIG").unwrap_or_else(|_| "config.yaml".to_owned());
     let config = std::fs::read(config_path).context(ReadConfig)?;
     serde_yaml::from_slice(&config).context(ParseConfig)
 }
