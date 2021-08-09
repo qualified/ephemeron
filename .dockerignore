@@ -1,2 +1,5 @@
 target/
 .vscode/
+.github/
+k8s/
+tests/
