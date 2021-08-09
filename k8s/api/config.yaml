@@ -2,6 +2,8 @@ presets:
   nginx:
     image: "nginx"
     port: 80
+    readinessProbe:
+      path: /
 
 # Allowed apps
 apps:
