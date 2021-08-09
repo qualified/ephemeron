@@ -1,0 +1,44 @@
+name: Images
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-images:
+    if: ${{ github.repository == 'qualified/ephemeron' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: qualified
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push controller image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: k8s/controller/Dockerfile
+          push: true
+          tags: ghcr.io/qualified/ephemeron-controller:latest
+
+      - name: Build and push api image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: k8s/api/Dockerfile
+          push: true
+          tags: ghcr.io/qualified/ephemeron-api:latest
