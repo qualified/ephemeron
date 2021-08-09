@@ -109,16 +109,16 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
 <details>
 <summary>Routes</summary>
 
-- `POST /`: Create a new service based on `preset` specified in config that lives for `duration`.
-  - Request `{preset: String, duration: String}`. Duration is a string like `5m`.
-  - Response `{id: String}`. Use this `id` to control the resource.
+- `POST /`: Create a new service based on `preset` specified in config that lives for `lifetimeMinutes`.
+  - Request `{preset: String, lifetimeMinutes: u32}`.
+  - Response `{id: String, expirationTime: DateTime<Utc>}`. Use this `id` to control the resource.
 - `GET /{id}`: Get the hostname of the service if available.
   - Response `{host: Option<String>, expirationTime: DateTime<Utc>, tls: bool}`.
     - `host` is a string `{id}.{domain}` when available. Otherwise, `null`.
     - `expirationTime` is when the service is destroyed.
     - `tls` is true if TLS is configured.
-- `PATCH /{id}`: Update the expiration.
-  - Request `{duration: String}`. Duration string like `5m`.
+- `PATCH /{id}`: Update the expiration time.
+  - Request `{lifetimeMinutes: u32}`.
   - Response `{expirationTime: DateTime<Utc>}`. The new expiration date time.
 - `DELETE /{id}`: Delete the resource and any resources it owns.
 - `POST /auth`: Authenticate with credentials set in config to get token. Other routes requires `Authorization: Bearer $TOKEN`.
@@ -151,7 +151,7 @@ curl \
     http://localhost:3030/ \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $TOKEN" \
-    -d "{\"preset\": \"nginx\", \"duration\": \"30m\"}"
+    -d "{\"preset\": \"nginx\", \"lifetimeMinutes\": 30}"
 # {"id": "c0nddh7s3ok4clog56n0"}
 ```
 

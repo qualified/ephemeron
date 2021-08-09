@@ -19,18 +19,20 @@ pub type Presets = std::collections::BTreeMap<String, crate::EphemeronService>;
 
 /// Payload for creating service with a preset.
 #[derive(serde::Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "camelCase")]
 struct PresetPayload {
     /// The name of the preset to use.
     pub preset: String,
-    /// The duration to expire the service after.
-    pub duration: String,
+    /// The duration to expire the service after in minutes.
+    pub lifetime_minutes: u32,
 }
 
 /// Payload for patching expiry.
 #[derive(serde::Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "camelCase")]
 struct PatchPayload {
-    /// The new duration to expire after.
-    pub duration: String,
+    /// The new duration to expire after from now in minutes.
+    pub lifetime_minutes: u32,
 }
 
 #[derive(serde::Serialize)]
