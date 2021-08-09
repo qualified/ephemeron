@@ -97,15 +97,17 @@ struct Created {
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct HostInfo {
     host: Option<String>,
-    expires: DateTime<Utc>,
+    expiration_time: DateTime<Utc>,
     tls: bool,
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Expiration {
-    expires: DateTime<Utc>,
+    expiration_time: DateTime<Utc>,
 }
 
 // Use this instead of `?` to avoid rejecting.
@@ -138,7 +140,7 @@ pub(super) async fn create(
     let mut eph = Ephemeron::new(
         &id,
         EphemeronSpec {
-            expires: chrono::Utc::now() + duration,
+            expiration_time: chrono::Utc::now() + duration,
             service: preset.clone(),
         },
     );
@@ -170,7 +172,7 @@ pub(super) async fn patch(
     let duration = warp_try!(get_duration(&payload.duration));
     let patch = Patch::Merge(serde_json::json!({
         "spec": {
-            "expires": chrono::Utc::now() + duration,
+            "expirationTime": chrono::Utc::now() + duration,
         },
     }));
     let eph = warp_try!(api
@@ -179,7 +181,7 @@ pub(super) async fn patch(
         .context(PatchDuration));
     Ok(json_response(
         &Expiration {
-            expires: eph.spec.expires,
+            expiration_time: eph.spec.expiration_time,
         },
         StatusCode::OK,
     ))
@@ -200,7 +202,7 @@ pub(super) async fn get(
     Ok(json_response(
         &HostInfo {
             host: eph.metadata.annotations.get("host").cloned(),
-            expires: eph.spec.expires,
+            expiration_time: eph.spec.expiration_time,
             tls: eph.spec.service.tls_secret_name.is_some(),
         },
         StatusCode::OK,

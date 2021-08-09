@@ -23,7 +23,7 @@ mod schemas;
 #[serde(rename_all = "camelCase")]
 pub struct EphemeronSpec {
     /// The date and time to kill this service on.
-    pub expires: DateTime<Utc>,
+    pub expiration_time: DateTime<Utc>,
     /// The service to create.
     pub service: EphemeronService,
 }
