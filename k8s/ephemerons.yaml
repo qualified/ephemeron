@@ -21,7 +21,7 @@ spec:
           properties:
             spec:
               properties:
-                expires:
+                expirationTime:
                   description: The date and time to kill this service on.
                   format: date-time
                   type: string
@@ -60,7 +60,7 @@ spec:
                     - port
                   type: object
               required:
-                - expires
+                - expirationTime
                 - service
               type: object
             status:

@@ -111,7 +111,11 @@ async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<Reconci
     // Nothing happened in this loop, so the resource is in the desired state.
     // Requeue around when this expires unless something else triggers reconciliation.
     Ok(ReconcilerAction {
-        requeue_after: Some((eph.spec.expires - Utc::now()).to_std().unwrap_or_default()),
+        requeue_after: Some(
+            (eph.spec.expiration_time - Utc::now())
+                .to_std()
+                .unwrap_or_default(),
+        ),
     })
 }
 

@@ -24,7 +24,7 @@ pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
 ) -> Result<Option<ReconcilerAction>> {
-    if eph.spec.expires > Utc::now() {
+    if eph.spec.expiration_time > Utc::now() {
         return Ok(None);
     }
 

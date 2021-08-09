@@ -6,5 +6,5 @@ spec:
   service:
     image: "nginx"
     port: 80
-  # Use `envsubst` to set `expires`
-  expires: "${EXPIRES}"
+  # Use `envsubst` to set `expirationTime`
+  expirationTime: "${EXPIRES}"
