@@ -6,5 +6,7 @@ spec:
   service:
     image: "nginx"
     port: 80
+    readinessProbe:
+      path: /
   # Use `envsubst` to set `expirationTime`
   expirationTime: "${EXPIRES}"

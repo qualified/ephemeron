@@ -45,6 +45,25 @@ pub struct EphemeronService {
     /// Ingress annotations.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub ingress_annotations: std::collections::BTreeMap<String, String>,
+
+    /// Probe to tell when the service is ready to accept traffic.
+    pub readiness_probe: Option<HttpGetProbe>,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpGetProbe {
+    /// Path to make a request to.
+    pub path: String,
+
+    /// Number of seconds after the container has started before probes are initiated.
+    pub initial_delay_seconds: Option<i32>,
+
+    /// How often (in seconds) to perform the probe. Default to 10 seconds. Minimum value is 1.
+    pub period_seconds: Option<i32>,
+
+    /// Number of seconds after which the probe times out. Defaults to 1 second. Minimum value is 1.
+    pub timeout_seconds: Option<i32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, JsonSchema)]

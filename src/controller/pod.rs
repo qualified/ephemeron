@@ -1,4 +1,7 @@
-use k8s_openapi::api::core::v1::{Container, ContainerPort, Pod, PodSpec};
+use k8s_openapi::{
+    api::core::v1::{Container, ContainerPort, HTTPGetAction, Pod, PodSpec, Probe},
+    apimachinery::pkg::util::intstr::IntOrString,
+};
 use kube::{
     api::{ObjectMeta, PostParams},
     error::ErrorResponse,
@@ -100,6 +103,22 @@ fn build_pod(eph: &Ephemeron) -> Pod {
                     container_port: eph.spec.service.port,
                     ..ContainerPort::default()
                 }],
+                readiness_probe: eph
+                    .spec
+                    .service
+                    .readiness_probe
+                    .as_ref()
+                    .map(|probe| Probe {
+                        http_get: Some(HTTPGetAction {
+                            path: Some(probe.path.clone()),
+                            port: IntOrString::Int(eph.spec.service.port),
+                            ..HTTPGetAction::default()
+                        }),
+                        initial_delay_seconds: probe.initial_delay_seconds,
+                        period_seconds: probe.period_seconds,
+                        timeout_seconds: probe.timeout_seconds,
+                        ..Probe::default()
+                    }),
                 ..Container::default()
             }],
             restart_policy: Some("Always".into()),
