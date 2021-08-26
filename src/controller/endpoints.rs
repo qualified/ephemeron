@@ -36,7 +36,10 @@ pub(super) async fn reconcile(
     let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), super::NS);
     match endpoints.get(&name).await {
         Ok(Endpoints { subsets, .. }) => {
-            let has_ready = subsets.iter().any(|s| !s.addresses.is_empty());
+            let has_ready = subsets.map_or(false, |ess| {
+                ess.iter()
+                    .any(|es| es.addresses.as_ref().map_or(false, |a| !a.is_empty()))
+            });
             match (eph.is_available(), has_ready) {
                 // Nothing to do if it's ready and the condition agrees.
                 (true, true) => Ok(None),

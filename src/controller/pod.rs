@@ -82,8 +82,8 @@ fn build_pod(eph: &Ephemeron) -> Pod {
         metadata: ObjectMeta {
             name: Some(name.clone()),
             namespace: Some(super::NS.into()),
-            owner_references: vec![super::to_owner_reference(eph)],
-            labels: super::make_common_labels(&name),
+            owner_references: Some(vec![super::to_owner_reference(eph)]),
+            labels: Some(super::make_common_labels(&name)),
             ..ObjectMeta::default()
         },
         spec: Some(PodSpec {
@@ -97,12 +97,12 @@ fn build_pod(eph: &Ephemeron) -> Pod {
                 // If `command` is specified without `args`, only the supplied `command` is used.
                 // The default `Entrypoint` and `Cmd` are ignored.
                 // If `command` is not specified, the default `EntryPoint` and `Cmd` are used.
-                command: eph.spec.service.command.clone().unwrap_or_default(),
+                command: Some(eph.spec.service.command.clone().unwrap_or_default()),
                 working_dir: eph.spec.service.working_dir.clone(),
-                ports: vec![ContainerPort {
+                ports: Some(vec![ContainerPort {
                     container_port: eph.spec.service.port,
                     ..ContainerPort::default()
-                }],
+                }]),
                 readiness_probe: eph
                     .spec
                     .service
@@ -131,10 +131,10 @@ fn build_pod(eph: &Ephemeron) -> Pod {
 }
 
 fn pod_is_ready(pod: &Pod) -> bool {
-    pod.status.as_ref().map_or(false, |status| {
-        status
-            .conditions
-            .iter()
-            .any(|c| c.type_ == "Ready" && c.status == "True")
-    })
+    pod.status
+        .as_ref()
+        .and_then(|s| s.conditions.as_ref())
+        .map_or(false, |cs| {
+            cs.iter().any(|c| c.type_ == "Ready" && c.status == "True")
+        })
 }
