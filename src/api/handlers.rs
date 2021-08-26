@@ -137,8 +137,7 @@ pub(super) async fn create(
             service: preset.clone(),
         },
     );
-    eph.metadata
-        .annotations
+    eph.annotations_mut()
         .insert(CREATED_BY.to_owned(), claims.sub);
 
     let api: Api<Ephemeron> = Api::all(client);
@@ -200,7 +199,7 @@ pub(super) async fn get(
 
     Ok(json_response(
         &HostInfo {
-            host: eph.metadata.annotations.get("host").cloned(),
+            host: eph.annotations().get("host").cloned(),
             expiration_time: eph.spec.expiration_time,
             tls: eph.spec.service.tls_secret_name.is_some(),
         },
