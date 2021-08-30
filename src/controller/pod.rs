@@ -120,6 +120,7 @@ fn build_pod(eph: &Ephemeron) -> Pod {
                         timeout_seconds: probe.timeout_seconds,
                         ..Probe::default()
                     }),
+                resources: eph.spec.service.resources.clone(),
                 ..Container::default()
             }],
             restart_policy: Some("Always".into()),
