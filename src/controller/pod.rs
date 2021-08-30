@@ -90,6 +90,7 @@ fn build_pod(eph: &Ephemeron) -> Pod {
             containers: vec![Container {
                 name: "container".into(),
                 image: Some(eph.spec.service.image.clone()),
+                image_pull_policy: eph.spec.service.image_pull_policy.clone(),
                 // Note that `command` in Kubernetes corresponds to `Entrypoint` in Docker, and
                 // `args` corresponds to `Cmd` in Docker.
                 // See https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/#notes
