@@ -6,6 +6,7 @@ metadata:
 spec:
   group: qualified.io
   names:
+    categories: []
     kind: Ephemeron
     plural: ephemerons
     shortNames:
@@ -14,7 +15,8 @@ spec:
     singular: ephemeron
   scope: Cluster
   versions:
-    - name: v1alpha1
+    - additionalPrinterColumns: []
+      name: v1alpha1
       schema:
         openAPIV3Schema:
           description: "Auto-generated derived type for EphemeronSpec via `CustomResource`"
@@ -36,6 +38,10 @@ spec:
                       type: array
                     image:
                       description: The image to use.
+                      type: string
+                    imagePullPolicy:
+                      description: "Image pull policy. One of Always, Never, IfNotPresent."
+                      nullable: true
                       type: string
                     ingressAnnotations:
                       additionalProperties:

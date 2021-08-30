@@ -48,6 +48,9 @@ pub struct EphemeronService {
 
     /// Probe to tell when the service is ready to accept traffic.
     pub readiness_probe: Option<HttpGetProbe>,
+
+    /// Image pull policy. One of Always, Never, IfNotPresent.
+    pub image_pull_policy: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, JsonSchema)]
