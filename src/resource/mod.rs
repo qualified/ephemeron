@@ -54,6 +54,18 @@ pub struct EphemeronService {
 
     /// Compute Resources required by this container.
     pub resources: Option<k8s_openapi::api::core::v1::ResourceRequirements>,
+
+    /// List of environment variables to set in the container.
+    pub env: Option<Vec<EnvVar>>,
+}
+
+/// `k8s_openapi::api::core::v1::EnvVar` minus `value_from`.
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone, JsonSchema)]
+pub struct EnvVar {
+    /// Name of the environment variable.
+    pub name: String,
+    /// Value of the environment variable. Defaults to "".
+    pub value: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, JsonSchema)]
