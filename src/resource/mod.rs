@@ -51,6 +51,9 @@ pub struct EphemeronService {
 
     /// Image pull policy. One of Always, Never, IfNotPresent.
     pub image_pull_policy: Option<String>,
+
+    /// Compute Resources required by this container.
+    pub resources: Option<k8s_openapi::api::core::v1::ResourceRequirements>,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, JsonSchema)]
