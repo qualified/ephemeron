@@ -1,5 +1,5 @@
 use k8s_openapi::{
-    api::core::v1::{Container, ContainerPort, HTTPGetAction, Pod, PodSpec, Probe},
+    api::core::v1::{Container, ContainerPort, EnvVar, HTTPGetAction, Pod, PodSpec, Probe},
     apimachinery::pkg::util::intstr::IntOrString,
 };
 use kube::{
@@ -99,6 +99,15 @@ fn build_pod(eph: &Ephemeron) -> Pod {
                 // The default `Entrypoint` and `Cmd` are ignored.
                 // If `command` is not specified, the default `EntryPoint` and `Cmd` are used.
                 command: Some(eph.spec.service.command.clone().unwrap_or_default()),
+                env: eph.spec.service.env.clone().map(|v| {
+                    v.into_iter()
+                        .map(|e| EnvVar {
+                            name: e.name,
+                            value: e.value,
+                            value_from: None,
+                        })
+                        .collect()
+                }),
                 working_dir: eph.spec.service.working_dir.clone(),
                 ports: Some(vec![ContainerPort {
                     container_port: eph.spec.service.port,

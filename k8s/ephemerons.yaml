@@ -36,6 +36,23 @@ spec:
                         type: string
                       nullable: true
                       type: array
+                    env:
+                      description: List of environment variables to set in the container.
+                      items:
+                        description: "`k8s_openapi::api::core::v1::EnvVar` minus `value_from`."
+                        properties:
+                          name:
+                            description: Name of the environment variable.
+                            type: string
+                          value:
+                            description: "Value of the environment variable. Defaults to \"\"."
+                            nullable: true
+                            type: string
+                        required:
+                          - name
+                        type: object
+                      nullable: true
+                      type: array
                     image:
                       description: The image to use.
                       type: string
