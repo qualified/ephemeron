@@ -46,11 +46,11 @@ impl warp::Reply for Error {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Claims {
-    /// Subject of the JWT. `uid@app`
+    /// Subject of the JWT. `uid.app`
     pub sub: String,
     /// Expiration time.
     pub exp: usize,
-    /// Optional group id. `gid@app`
+    /// Optional group id. `gid.app`
     pub gid: Option<String>,
 }
 
@@ -74,7 +74,7 @@ pub struct TokenResponse {
 // `POST /auth` `{app: String, key: String, uid: String, gid?: String}` -> `{token: String}`
 // Get short-lived token for frontend usage (backend app authenticates on behalf of its user).
 // `uid` must be a string that's unique within `app`.
-// The token's subject is `{uid}@{app}`, and it's valid for 5 minutes.
+// The token's subject is `{uid}.{app}`, and it's valid for 5 minutes.
 // The api key must be kept secret.
 // Use this token to make requests to create and update resources.
 #[allow(clippy::unused_async)]
@@ -87,11 +87,11 @@ pub async fn token(apps: Arc<Apps>, request: TokenRequest) -> Result<impl Reply,
         return Ok(Error::InvalidKey.into_response());
     }
 
-    let sub = format!("{}@{}", request.uid, request.app);
+    let sub = format!("{}.{}", request.uid, request.app);
     let gid = request
         .gid
         .as_ref()
-        .map(|g| format!("{}@{}", g, &request.app));
+        .map(|g| format!("{}.{}", g, &request.app));
     let token = match create_jwt(sub, gid) {
         Err(err) => return Ok(err.into_response()),
         Ok(token) => token,

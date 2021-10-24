@@ -123,8 +123,8 @@ curl $host | grep "<h1>Welcome to nginx!</h1>"
 - `DELETE /{id}`: Delete the resource and any resources it owns.
 - `POST /auth`: Authenticate with credentials set in config to get token. Other routes requires `Authorization: Bearer $TOKEN`.
   - Designed to be used by some backend service to authenticate on behalf of its user. `key` should be kept secret.
-  - Request `{app: String, key: String, uid: String}`. `uid` must be unique within `app`.
-  - Response `{token: String}`. `token` is a JWT with `sub` set to `{uid}@{app}`.
+  - Request `{app: String, key: String, uid: String, gid?: String}`. `uid` must be unique within `app`. `gid` is an optional id of the group user belongs to.
+  - Response `{token: String}`. `token` is a JWT with `sub` set to `{uid}.{app}`.
 
 </details>
 
