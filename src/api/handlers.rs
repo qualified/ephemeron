@@ -115,7 +115,10 @@ macro_rules! warp_try {
     };
 }
 
+// Annotation used for access control. The claim's `sub` must match to patch.
 const CREATED_BY: &str = "ephemerons.qualified.io/created-by";
+// Label added to pod if the claim contains `gid`.
+const GROUP_LABEL: &str = "ephemerons.qualified.io/group";
 
 #[tracing::instrument(skip(client, presets), level = "debug")]
 pub(super) async fn create(
@@ -139,6 +142,12 @@ pub(super) async fn create(
     );
     eph.annotations_mut()
         .insert(CREATED_BY.to_owned(), claims.sub);
+    if let Some(gid) = claims.gid {
+        eph.spec
+            .service
+            .pod_labels
+            .insert(GROUP_LABEL.to_owned(), gid);
+    }
 
     let api: Api<Ephemeron> = Api::all(client);
     let eph = warp_try!(api

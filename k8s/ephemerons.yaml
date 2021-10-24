@@ -65,6 +65,11 @@ spec:
                         type: string
                       description: Ingress annotations.
                       type: object
+                    podLabels:
+                      additionalProperties:
+                        type: string
+                      description: Additional labels to add to the Pod.
+                      type: object
                     port:
                       description: The port to use.
                       maximum: 65535.0

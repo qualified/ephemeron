@@ -61,10 +61,10 @@ The controller is configured with the following environment variables:
 ## Usage 
 ### Run Controller
 
-Add CRD and wait for `NamesAccepted` condition:
+Add CRD and wait for `Established` condition:
 ```bash
 kubectl apply -f k8s/ephemerons.yaml
-kubectl wait --for=condition=NamesAccepted crd/ephemerons.qualified.io
+kubectl wait --for=condition=Established crd/ephemerons.qualified.io
 ```
 
 Run controller:

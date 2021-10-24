@@ -78,12 +78,14 @@ pub(super) async fn reconcile(
 
 fn build_pod(eph: &Ephemeron) -> Pod {
     let name = eph.name();
+    let mut labels = eph.spec.service.pod_labels.clone();
+    labels.append(&mut super::make_common_labels(&name));
     Pod {
         metadata: ObjectMeta {
-            name: Some(name.clone()),
+            name: Some(name),
             namespace: Some(super::NS.into()),
             owner_references: Some(vec![super::to_owner_reference(eph)]),
-            labels: Some(super::make_common_labels(&name)),
+            labels: Some(labels),
             ..ObjectMeta::default()
         },
         spec: Some(PodSpec {

@@ -9,7 +9,7 @@ trap _term SIGTERM
 
 echo "::group::Add CRD and wait until accepted"
 kubectl apply -f k8s/ephemerons.yaml
-kubectl wait --for=condition=NamesAccepted crd/ephemerons.qualified.io
+kubectl wait --for=condition=Established crd/ephemerons.qualified.io
 echo "::endgroup::"
 
 echo "::group::Waiting for LoadBalancer to get external ip"
