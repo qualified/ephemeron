@@ -3,6 +3,8 @@
 // From `CustomResource`
 #![allow(clippy::default_trait_access)]
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use kube::CustomResource;
 use schemars::JsonSchema;
@@ -43,8 +45,8 @@ pub struct EphemeronService {
     /// The name of the TLS secret.
     pub tls_secret_name: Option<String>,
     /// Ingress annotations.
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub ingress_annotations: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ingress_annotations: BTreeMap<String, String>,
 
     /// Probe to tell when the service is ready to accept traffic.
     pub readiness_probe: Option<HttpGetProbe>,
@@ -57,6 +59,10 @@ pub struct EphemeronService {
 
     /// List of environment variables to set in the container.
     pub env: Option<Vec<EnvVar>>,
+
+    /// Additional labels to add to the Pod.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pod_labels: BTreeMap<String, String>,
 }
 
 /// `k8s_openapi::api::core::v1::EnvVar` minus `value_from`.

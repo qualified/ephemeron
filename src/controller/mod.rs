@@ -129,13 +129,13 @@ fn error_policy(error: &Error, _ctx: Context<ContextData>) -> ReconcilerAction {
 }
 
 fn make_common_labels(name: &str) -> BTreeMap<String, String> {
-    vec![
-        ("app.kubernetes.io/name", name),
-        ("app.kubernetes.io/managed-by", PROJECT_NAME),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.to_owned(), v.to_owned()))
-    .collect::<BTreeMap<_, _>>()
+    BTreeMap::from([
+        ("app.kubernetes.io/name".to_owned(), name.to_owned()),
+        (
+            "app.kubernetes.io/managed-by".to_owned(),
+            PROJECT_NAME.to_owned(),
+        ),
+    ])
 }
 
 fn to_owner_reference(eph: &Ephemeron) -> OwnerReference {
