@@ -80,11 +80,10 @@ fn build_service(eph: &Ephemeron) -> Service {
                 target_port: Some(IntOrString::Int(eph.spec.service.port)),
                 ..ServicePort::default()
             }]),
-            selector: Some(
-                vec![("app.kubernetes.io/name".to_owned(), name)]
-                    .into_iter()
-                    .collect::<BTreeMap<_, _>>(),
-            ),
+            selector: Some(BTreeMap::from([(
+                "app.kubernetes.io/name".to_owned(),
+                name,
+            )])),
             ..ServiceSpec::default()
         }),
         ..Service::default()
