@@ -25,6 +25,12 @@ pub enum Error {
     #[snafu(display("invalid key"))]
     InvalidKey,
 
+    #[snafu(display("invalid uid"))]
+    InvalidUserId,
+
+    #[snafu(display("invalid gid"))]
+    InvalidGroupId,
+
     #[snafu(display("failed to create token: {}", source))]
     CreateToken { source: jwt::errors::Error },
 }
@@ -34,6 +40,14 @@ impl warp::Reply for Error {
         match self {
             Error::InvalidKey | Error::AppLookup => {
                 json_error_response("Unauthorized".to_owned(), StatusCode::UNAUTHORIZED)
+            }
+
+            Error::InvalidUserId => {
+                json_error_response("Invalid uid".to_owned(), StatusCode::BAD_REQUEST)
+            }
+
+            Error::InvalidGroupId => {
+                json_error_response("Invalid gid".to_owned(), StatusCode::BAD_REQUEST)
             }
 
             Error::CreateToken { .. } => json_error_response(
@@ -86,18 +100,31 @@ pub async fn token(apps: Arc<Apps>, request: TokenRequest) -> Result<impl Reply,
     if request.key != *key {
         return Ok(Error::InvalidKey.into_response());
     }
+    // Label values must be 63 characters or less.
+    let max_id_len = 63 - (request.app.len() + 1);
+    if !is_valid_id(&request.uid, max_id_len) {
+        return Ok(Error::InvalidUserId.into_response());
+    }
 
     let sub = format!("{}.{}", request.uid, request.app);
-    let gid = request
-        .gid
-        .as_ref()
-        .map(|g| format!("{}.{}", g, &request.app));
+    let gid = if let Some(gid) = request.gid {
+        if !is_valid_id(&gid, max_id_len) {
+            return Ok(Error::InvalidGroupId.into_response());
+        }
+        Some(format!("{}.{}", gid, request.app))
+    } else {
+        None
+    };
     let token = match create_jwt(sub, gid) {
         Err(err) => return Ok(err.into_response()),
         Ok(token) => token,
     };
 
     Ok(json_response(&TokenResponse { token }, StatusCode::OK))
+}
+
+fn is_valid_id(s: &str, n: usize) -> bool {
+    !s.is_empty() && s.len() <= n && s.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 fn create_jwt(sub: String, gid: Option<String>) -> Result<String, Error> {
