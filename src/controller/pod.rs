@@ -36,8 +36,8 @@ pub(super) async fn reconcile(
     let client = ctx.get_ref().client.clone();
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), super::NS);
-    match pods.get(&name).await {
-        Ok(pod) => match (eph.is_pod_ready(), pod_is_ready(&pod)) {
+    if let Some(pod) = pods.get_opt(&name).await.context(GetPod)? {
+        match (eph.is_pod_ready(), pod_is_ready(&pod)) {
             (a, b) if a == b => Ok(None),
             (_, actual) => {
                 conditions::set_pod_ready(eph, ctx.get_ref().client.clone(), Some(actual))
@@ -45,28 +45,23 @@ pub(super) async fn reconcile(
                     .context(UpdateCondition)?;
                 Ok(Some(Action::await_change()))
             }
-        },
-
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            conditions::set_pod_ready(eph, client.clone(), Some(false))
-                .await
-                .context(UpdateCondition)?;
-            conditions::set_available(eph, client.clone(), Some(false))
-                .await
-                .context(UpdateCondition)?;
-            let pod = build_pod(eph);
-            match pods.create(&PostParams::default(), &pod).await {
-                Ok(_) => Ok(Some(Action::await_change())),
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Pod already exists");
-                    Ok(Some(Action::await_change()))
-                }
-                Err(err) => Err(Error::CreatePod { source: err }),
-            }
         }
-
-        // Unexpected error
-        Err(e) => Err(Error::GetPod { source: e }),
+    } else {
+        conditions::set_pod_ready(eph, client.clone(), Some(false))
+            .await
+            .context(UpdateCondition)?;
+        conditions::set_available(eph, client.clone(), Some(false))
+            .await
+            .context(UpdateCondition)?;
+        let pod = build_pod(eph);
+        match pods.create(&PostParams::default(), &pod).await {
+            Ok(_) => Ok(Some(Action::await_change())),
+            Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                debug!("Pod already exists");
+                Ok(Some(Action::await_change()))
+            }
+            Err(err) => Err(Error::CreatePod { source: err }),
+        }
     }
 }
 

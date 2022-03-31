@@ -10,7 +10,7 @@ use kube::{
     runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use snafu::Snafu;
+use snafu::{ResultExt, Snafu};
 use tracing::debug;
 
 use super::{conditions, ContextData};
@@ -39,23 +39,19 @@ pub(super) async fn reconcile(
     let client = ctx.get_ref().client.clone();
 
     let svcs: Api<Service> = Api::namespaced(client.clone(), super::NS);
-    match svcs.get(&name).await {
-        Ok(_) => Ok(None),
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            debug!("Creating Service");
-            let svc = build_service(eph);
-            match svcs.create(&PostParams::default(), &svc).await {
-                Ok(_) => Ok(Some(Action::await_change())),
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Service already exists");
-                    Ok(Some(Action::await_change()))
-                }
-                Err(err) => Err(Error::CreateService { source: err }),
+    if svcs.get_opt(&name).await.context(GetService)?.is_some() {
+        Ok(None)
+    } else {
+        debug!("Creating Service");
+        let svc = build_service(eph);
+        match svcs.create(&PostParams::default(), &svc).await {
+            Ok(_) => Ok(Some(Action::await_change())),
+            Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                debug!("Service already exists");
+                Ok(Some(Action::await_change()))
             }
+            Err(err) => Err(Error::CreateService { source: err }),
         }
-
-        // Unexpected error
-        Err(e) => Err(Error::GetService { source: e }),
     }
 }
 

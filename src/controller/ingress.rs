@@ -8,7 +8,7 @@ use kube::{
     runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use snafu::Snafu;
+use snafu::{ResultExt, Snafu};
 use tracing::debug;
 
 use super::{conditions, ContextData};
@@ -36,26 +36,21 @@ pub(super) async fn reconcile(
     let client = ctx.get_ref().client.clone();
 
     let ings: Api<Ingress> = Api::namespaced(client.clone(), super::NS);
-    match ings.get(&name).await {
-        Ok(_) => Ok(None),
+    if ings.get_opt(&name).await.context(GetIngress)?.is_some() {
+        Ok(None)
+    } else {
+        debug!("Creating Ingress");
+        let ing = build_ingress(eph, ctx.get_ref().domain.as_ref());
+        match ings.create(&PostParams::default(), &ing).await {
+            Ok(_) => Ok(Some(Action::await_change())),
 
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            debug!("Creating Ingress");
-            let ing = build_ingress(eph, ctx.get_ref().domain.as_ref());
-            match ings.create(&PostParams::default(), &ing).await {
-                Ok(_) => Ok(Some(Action::await_change())),
-
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Ingress already exists");
-                    Ok(Some(Action::await_change()))
-                }
-
-                Err(err) => Err(Error::CreateIngress { source: err }),
+            Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                debug!("Ingress already exists");
+                Ok(Some(Action::await_change()))
             }
-        }
 
-        // Unexpected error
-        Err(e) => Err(Error::GetIngress { source: e }),
+            Err(err) => Err(Error::CreateIngress { source: err }),
+        }
     }
 }
 

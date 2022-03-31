@@ -3,7 +3,6 @@ use std::time::Duration;
 use k8s_openapi::api::core::v1::Endpoints;
 use kube::{
     api::{Patch, PatchParams},
-    error::ErrorResponse,
     runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
@@ -34,56 +33,50 @@ pub(super) async fn reconcile(
     let client = ctx.get_ref().client.clone();
     // Check if service has endpoints
     let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), super::NS);
-    match endpoints.get(&name).await {
-        Ok(Endpoints { subsets, .. }) => {
-            let has_ready = subsets.map_or(false, |ess| {
-                ess.iter()
-                    .any(|es| es.addresses.as_ref().map_or(false, |a| !a.is_empty()))
-            });
-            match (eph.is_available(), has_ready) {
-                // Nothing to do if it's ready and the condition agrees.
-                (true, true) => Ok(None),
-                // Requeue soon if `Endpoints` exists, but not ready yet.
-                (false, false) => Ok(Some(Action::requeue(Duration::from_secs(1)))),
-                // Fix outdated condition
-                (_, available) => {
-                    let api: Api<Ephemeron> = Api::all(client.clone());
-                    let patch = if available {
-                        let domain: &str = ctx.get_ref().domain.as_ref();
-                        serde_json::json!({
-                            "metadata": {
-                                "annotations": {
-                                    "host": &format!("{}.{}", &name, domain),
-                                },
+    if let Some(Endpoints { subsets, .. }) = endpoints.get_opt(&name).await.context(GetEndpoints)? {
+        let has_ready = subsets.map_or(false, |ess| {
+            ess.iter()
+                .any(|es| es.addresses.as_ref().map_or(false, |a| !a.is_empty()))
+        });
+        match (eph.is_available(), has_ready) {
+            // Nothing to do if it's ready and the condition agrees.
+            (true, true) => Ok(None),
+            // Requeue soon if `Endpoints` exists, but not ready yet.
+            (false, false) => Ok(Some(Action::requeue(Duration::from_secs(1)))),
+            // Fix outdated condition
+            (_, available) => {
+                let api: Api<Ephemeron> = Api::all(client.clone());
+                let patch = if available {
+                    let domain: &str = ctx.get_ref().domain.as_ref();
+                    serde_json::json!({
+                        "metadata": {
+                            "annotations": {
+                                "host": &format!("{}.{}", &name, domain),
                             },
-                        })
-                    } else {
-                        serde_json::json!({
-                            "metadata": {
-                                "annotations": {
-                                    "host": null,
-                                },
+                        },
+                    })
+                } else {
+                    serde_json::json!({
+                        "metadata": {
+                            "annotations": {
+                                "host": null,
                             },
-                        })
-                    };
+                        },
+                    })
+                };
 
-                    api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
-                        .await
-                        .context(HostAnnotation)?;
+                api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
+                    .await
+                    .context(HostAnnotation)?;
 
-                    conditions::set_available(eph, client, Some(available))
-                        .await
-                        .context(UpdateCondition)?;
+                conditions::set_available(eph, client, Some(available))
+                    .await
+                    .context(UpdateCondition)?;
 
-                    Ok(Some(Action::await_change()))
-                }
+                Ok(Some(Action::await_change()))
             }
         }
-
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            Ok(Some(Action::requeue(Duration::from_secs(2))))
-        }
-
-        Err(err) => Err(Error::GetEndpoints { source: err }),
+    } else {
+        Ok(Some(Action::requeue(Duration::from_secs(2))))
     }
 }
