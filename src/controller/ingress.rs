@@ -9,7 +9,6 @@ use kube::{
     Api, ResourceExt,
 };
 use thiserror::Error;
-use tracing::debug;
 
 use super::ContextData;
 use crate::Ephemeron;
@@ -41,13 +40,13 @@ pub(super) async fn reconcile(
     {
         Ok(None)
     } else {
-        debug!("Creating Ingress");
+        tracing::debug!("Creating Ingress");
         let ing = build_ingress(eph, ctx.get_ref().domain.as_ref());
         match ings.create(&PostParams::default(), &ing).await {
             Ok(_) => Ok(Some(Action::await_change())),
 
             Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                debug!("Ingress already exists");
+                tracing::debug!("Ingress already exists");
                 Ok(Some(Action::await_change()))
             }
 

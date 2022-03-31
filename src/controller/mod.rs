@@ -15,7 +15,6 @@ use kube::{
     Api, Client, Resource, ResourceExt,
 };
 use thiserror::Error;
-use tracing::{trace, warn};
 
 use super::Ephemeron;
 mod conditions;
@@ -63,7 +62,7 @@ pub async fn run(client: Client, domain: String) {
         .run(reconciler, error_policy, context)
         .filter_map(|x| async move { x.ok() })
         .for_each(|(_, action)| async move {
-            trace!("Reconciled: {:?}", action);
+            tracing::trace!("Reconciled: {:?}", action);
         })
         .await;
 }
@@ -77,7 +76,7 @@ struct ContextData {
 #[tracing::instrument(skip(eph, ctx), level = "trace")]
 async fn reconciler(eph: Arc<Ephemeron>, ctx: Context<ContextData>) -> Result<Action> {
     if let Some(conditions) = eph.status.as_ref().map(|s| &s.conditions) {
-        trace!("conditions: {:?}", conditions);
+        tracing::trace!("conditions: {:?}", conditions);
     }
 
     if let Some(action) = expiry::reconcile(&eph, ctx.clone())
@@ -123,7 +122,7 @@ async fn reconciler(eph: Arc<Ephemeron>, ctx: Context<ContextData>) -> Result<Ac
 #[allow(clippy::needless_pass_by_value)]
 /// An error handler called when the reconciler fails.
 fn error_policy(error: &Error, _ctx: Context<ContextData>) -> Action {
-    warn!("reconciler failed: {}", error);
+    tracing::warn!("reconciler failed: {}", error);
     Action::await_change()
 }
 

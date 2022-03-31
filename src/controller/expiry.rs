@@ -5,7 +5,6 @@ use kube::{
     Api, ResourceExt,
 };
 use thiserror::Error;
-use tracing::debug;
 
 use super::ContextData;
 use crate::Ephemeron;
@@ -28,7 +27,7 @@ pub(super) async fn reconcile(
         return Ok(None);
     }
 
-    debug!("Resource expired, deleting");
+    tracing::debug!("Resource expired, deleting");
     let name = eph.name();
     // Delete the owner with `propagationPolicy=Background`.
     // This will delete the owner immediately, then children are deleted by garbage collector.

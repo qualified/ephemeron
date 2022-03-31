@@ -11,7 +11,6 @@ use kube::{
     Api, ResourceExt,
 };
 use thiserror::Error;
-use tracing::debug;
 
 use super::ContextData;
 use crate::Ephemeron;
@@ -44,12 +43,12 @@ pub(super) async fn reconcile(
     {
         Ok(None)
     } else {
-        debug!("Creating Service");
+        tracing::debug!("Creating Service");
         let svc = build_service(eph);
         match svcs.create(&PostParams::default(), &svc).await {
             Ok(_) => Ok(Some(Action::await_change())),
             Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                debug!("Service already exists");
+                tracing::debug!("Service already exists");
                 Ok(Some(Action::await_change()))
             }
             Err(err) => Err(Error::CreateService(err)),

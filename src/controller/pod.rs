@@ -9,7 +9,6 @@ use kube::{
     Api, ResourceExt,
 };
 use thiserror::Error;
-use tracing::debug;
 
 use super::{conditions, ContextData};
 use crate::Ephemeron;
@@ -57,7 +56,7 @@ pub(super) async fn reconcile(
         match pods.create(&PostParams::default(), &pod).await {
             Ok(_) => Ok(Some(Action::await_change())),
             Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                debug!("Pod already exists");
+                tracing::debug!("Pod already exists");
                 Ok(Some(Action::await_change()))
             }
             Err(err) => Err(Error::CreatePod(err)),
