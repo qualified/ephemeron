@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use chrono::Utc;
 use futures::StreamExt;
@@ -9,8 +9,11 @@ use k8s_openapi::{
     },
     apimachinery::pkg::apis::meta::v1::OwnerReference,
 };
-use kube::{api::ListParams, Api, Client, Resource, ResourceExt};
-use kube_runtime::controller::{Context, Controller, ReconcilerAction};
+use kube::{
+    api::ListParams,
+    runtime::controller::{Action, Context, Controller},
+    Api, Client, Resource, ResourceExt,
+};
 use snafu::{ResultExt, Snafu};
 use tracing::{trace, warn};
 
@@ -60,7 +63,7 @@ pub async fn run(client: Client, domain: String) {
         .run(reconciler, error_policy, context)
         .filter_map(|x| async move { x.ok() })
         .for_each(|(_, action)| async move {
-            trace!("Reconciled: requeue after {:?}", action.requeue_after);
+            trace!("Reconciled: {:?}", action);
         })
         .await;
 }
@@ -72,7 +75,7 @@ struct ContextData {
 }
 
 #[tracing::instrument(skip(eph, ctx), level = "trace")]
-async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
+async fn reconciler(eph: Arc<Ephemeron>, ctx: Context<ContextData>) -> Result<Action> {
     if let Some(conditions) = eph.status.as_ref().map(|s| &s.conditions) {
         trace!("conditions: {:?}", conditions);
     }
@@ -110,22 +113,18 @@ async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<Reconci
 
     // Nothing happened in this loop, so the resource is in the desired state.
     // Requeue around when this expires unless something else triggers reconciliation.
-    Ok(ReconcilerAction {
-        requeue_after: Some(
-            (eph.spec.expiration_time - Utc::now())
-                .to_std()
-                .unwrap_or_default(),
-        ),
-    })
+    Ok(Action::requeue(
+        (eph.spec.expiration_time - Utc::now())
+            .to_std()
+            .unwrap_or_default(),
+    ))
 }
 
 #[allow(clippy::needless_pass_by_value)]
 /// An error handler called when the reconciler fails.
-fn error_policy(error: &Error, _ctx: Context<ContextData>) -> ReconcilerAction {
+fn error_policy(error: &Error, _ctx: Context<ContextData>) -> Action {
     warn!("reconciler failed: {}", error);
-    ReconcilerAction {
-        requeue_after: None,
-    }
+    Action::await_change()
 }
 
 fn make_common_labels(name: &str) -> BTreeMap<String, String> {

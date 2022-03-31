@@ -4,9 +4,9 @@ use k8s_openapi::api::core::v1::Endpoints;
 use kube::{
     api::{Patch, PatchParams},
     error::ErrorResponse,
+    runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
 
 use super::{conditions, ContextData};
@@ -29,7 +29,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
+) -> Result<Option<Action>> {
     let name = eph.name();
     let client = ctx.get_ref().client.clone();
     // Check if service has endpoints
@@ -44,9 +44,7 @@ pub(super) async fn reconcile(
                 // Nothing to do if it's ready and the condition agrees.
                 (true, true) => Ok(None),
                 // Requeue soon if `Endpoints` exists, but not ready yet.
-                (false, false) => Ok(Some(ReconcilerAction {
-                    requeue_after: Some(Duration::from_secs(1)),
-                })),
+                (false, false) => Ok(Some(Action::requeue(Duration::from_secs(1)))),
                 // Fix outdated condition
                 (_, available) => {
                     let api: Api<Ephemeron> = Api::all(client.clone());
@@ -77,16 +75,14 @@ pub(super) async fn reconcile(
                         .await
                         .context(UpdateCondition)?;
 
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
+                    Ok(Some(Action::await_change()))
                 }
             }
         }
 
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => Ok(Some(ReconcilerAction {
-            requeue_after: Some(Duration::from_secs(2)),
-        })),
+        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
+            Ok(Some(Action::requeue(Duration::from_secs(2))))
+        }
 
         Err(err) => Err(Error::GetEndpoints { source: err }),
     }

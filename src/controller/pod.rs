@@ -5,9 +5,9 @@ use k8s_openapi::{
 use kube::{
     api::{ObjectMeta, PostParams},
     error::ErrorResponse,
+    runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
 use tracing::debug;
 
@@ -31,7 +31,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
+) -> Result<Option<Action>> {
     let name = eph.name();
     let client = ctx.get_ref().client.clone();
 
@@ -43,9 +43,7 @@ pub(super) async fn reconcile(
                 conditions::set_pod_ready(eph, ctx.get_ref().client.clone(), Some(actual))
                     .await
                     .context(UpdateCondition)?;
-                Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                }))
+                Ok(Some(Action::await_change()))
             }
         },
 
@@ -58,14 +56,10 @@ pub(super) async fn reconcile(
                 .context(UpdateCondition)?;
             let pod = build_pod(eph);
             match pods.create(&PostParams::default(), &pod).await {
-                Ok(_) => Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                })),
+                Ok(_) => Ok(Some(Action::await_change())),
                 Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
                     debug!("Pod already exists");
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
+                    Ok(Some(Action::await_change()))
                 }
                 Err(err) => Err(Error::CreatePod { source: err }),
             }

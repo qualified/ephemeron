@@ -1,9 +1,9 @@
 use chrono::Utc;
 use kube::{
     api::{DeleteParams, PropagationPolicy},
+    runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use kube_runtime::controller::{Context, ReconcilerAction};
 use snafu::{ResultExt, Snafu};
 use tracing::debug;
 
@@ -23,7 +23,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
+) -> Result<Option<Action>> {
     if eph.spec.expiration_time > Utc::now() {
         return Ok(None);
     }
@@ -43,7 +43,5 @@ pub(super) async fn reconcile(
     .await
     .context(Delete)?;
 
-    Ok(Some(ReconcilerAction {
-        requeue_after: None,
-    }))
+    Ok(Some(Action::await_change()))
 }
