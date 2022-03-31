@@ -16,7 +16,7 @@ serde_json = "1.0.79"
 serde_yaml = "0.8.23"
 
 futures = "0.3.21"
-chrono = "0.4.19"
+chrono = { version = "0.4.19", default-features = false, features = ["std", "clock"] }
 tracing = "0.1.32"
 tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
 tokio = { version = "1.17.0", features = ["macros", "rt", "rt-multi-thread"] }
