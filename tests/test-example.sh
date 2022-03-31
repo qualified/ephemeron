@@ -2,10 +2,15 @@
 set -euf -o pipefail
 
 _term() {
+  echo "::group::Clean up"
+  if kubectl get ephemeron/example 2>/dev/null; then
+    kubectl delete -f k8s/example.yaml
+  fi
   kill -TERM "$controller" 2>/dev/null
+  echo "::endgroup::"
 }
 
-trap _term SIGTERM
+trap _term SIGTERM TERM EXIT
 
 echo "::group::Add CRD and wait until accepted"
 kubectl apply -f k8s/ephemerons.yaml
@@ -24,6 +29,7 @@ echo "::group::Run Controller"
 export EPHEMERON_DOMAIN="$ip.sslip.io"
 cargo run &
 controller=$!
+sleep 5
 echo "::endgroup::"
 
 echo "::group::Create example and wait until Available"
@@ -35,11 +41,5 @@ echo "::endgroup::"
 
 echo "::group::Check nginx default page"
 host=$(kubectl get eph example -o jsonpath='{.metadata.annotations.host}')
-curl "$host" | grep "<h1>Welcome to nginx!</h1>"
-echo "::endgroup::"
-
-
-echo "::group::Clean up"
-kubectl delete -f k8s/example.yaml
-kill -TERM "$controller" 2>/dev/null
+curl -v "$host" | grep "<h1>Welcome to nginx!</h1>"
 echo "::endgroup::"
