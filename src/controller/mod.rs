@@ -14,7 +14,7 @@ use kube::{
     runtime::controller::{Action, Context, Controller},
     Api, Client, Resource, ResourceExt,
 };
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 use tracing::{trace, warn};
 
 use super::Ephemeron;
@@ -26,22 +26,22 @@ mod pod;
 mod service;
 
 const PROJECT_NAME: &str = "ephemeron";
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to delete expired resource: {}", source))]
-    DeleteExpired { source: expiry::Error },
+    #[error("failed to delete expired resource: {0}")]
+    DeleteExpired(#[source] expiry::Error),
 
-    #[snafu(display("Failed to reconcile pod: {}", source))]
-    ReconcilePod { source: pod::Error },
+    #[error("failed to reconcile pod: {0}")]
+    ReconcilePod(#[source] pod::Error),
 
-    #[snafu(display("Failed to reconcile service: {}", source))]
-    ReconcileService { source: service::Error },
+    #[error("failed to reconcile service: {0}")]
+    ReconcileService(#[source] service::Error),
 
-    #[snafu(display("Failed to reconcile ingress: {}", source))]
-    ReconcileIngress { source: ingress::Error },
+    #[error("failed to reconcile ingress: {0}")]
+    ReconcileIngress(#[source] ingress::Error),
 
-    #[snafu(display("Failed to reconcile endpoints: {}", source))]
-    ReconcileEndpoints { source: endpoints::Error },
+    #[error("failed to reconcile endpoints: {0}")]
+    ReconcileEndpoints(#[source] endpoints::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -82,31 +82,31 @@ async fn reconciler(eph: Arc<Ephemeron>, ctx: Context<ContextData>) -> Result<Ac
 
     if let Some(action) = expiry::reconcile(&eph, ctx.clone())
         .await
-        .context(DeleteExpired)?
+        .map_err(Error::DeleteExpired)?
     {
         return Ok(action);
     }
     if let Some(action) = pod::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcilePod)?
+        .map_err(Error::ReconcilePod)?
     {
         return Ok(action);
     }
     if let Some(action) = service::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcileService)?
+        .map_err(Error::ReconcileService)?
     {
         return Ok(action);
     }
     if let Some(action) = ingress::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcileIngress)?
+        .map_err(Error::ReconcileIngress)?
     {
         return Ok(action);
     }
     if let Some(action) = endpoints::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcileEndpoints)?
+        .map_err(Error::ReconcileEndpoints)?
     {
         return Ok(action);
     }

@@ -15,7 +15,6 @@ serde = { version = "1.0.129", features = ["derive"] }
 serde_json = "1.0.66"
 serde_yaml = "0.8.19"
 
-snafu = "0.6.10"
 futures = "0.3.16"
 chrono = "0.4.19"
 tracing = "0.1.26"
@@ -26,3 +25,4 @@ warp = "0.3.1"
 xid = "1.0.0"
 jsonwebtoken = "7.2.0"
 once_cell = "1.8.0"
+thiserror = "1.0.30"

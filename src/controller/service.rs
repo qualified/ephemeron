@@ -10,22 +10,19 @@ use kube::{
     runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 use tracing::debug;
 
-use super::{conditions, ContextData};
+use super::ContextData;
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to create service: {}", source))]
-    CreateService { source: kube::Error },
+    #[error("failed to create service: {0}")]
+    CreateService(#[source] kube::Error),
 
-    #[snafu(display("Failed to get service: {}", source))]
-    GetService { source: kube::Error },
-
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
+    #[error("failed to get service: {0}")]
+    GetService(#[source] kube::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -39,7 +36,12 @@ pub(super) async fn reconcile(
     let client = ctx.get_ref().client.clone();
 
     let svcs: Api<Service> = Api::namespaced(client.clone(), super::NS);
-    if svcs.get_opt(&name).await.context(GetService)?.is_some() {
+    if svcs
+        .get_opt(&name)
+        .await
+        .map_err(Error::GetService)?
+        .is_some()
+    {
         Ok(None)
     } else {
         debug!("Creating Service");
@@ -50,7 +52,7 @@ pub(super) async fn reconcile(
                 debug!("Service already exists");
                 Ok(Some(Action::await_change()))
             }
-            Err(err) => Err(Error::CreateService { source: err }),
+            Err(err) => Err(Error::CreateService(err)),
         }
     }
 }

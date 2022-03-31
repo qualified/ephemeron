@@ -6,21 +6,21 @@ use kube::{
     runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 
 use super::{conditions, ContextData};
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to get endpoints: {}", source))]
-    GetEndpoints { source: kube::Error },
+    #[error("failed to get endpoints: {0}")]
+    GetEndpoints(#[source] kube::Error),
 
-    #[snafu(display("Failed to annotate host information: {}", source))]
-    HostAnnotation { source: kube::Error },
+    #[error("failed to annotate host information: {0}")]
+    HostAnnotation(#[source] kube::Error),
 
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
+    #[error("failed to update condition: {0}")]
+    UpdateCondition(#[source] conditions::Error),
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -33,7 +33,11 @@ pub(super) async fn reconcile(
     let client = ctx.get_ref().client.clone();
     // Check if service has endpoints
     let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), super::NS);
-    if let Some(Endpoints { subsets, .. }) = endpoints.get_opt(&name).await.context(GetEndpoints)? {
+    if let Some(Endpoints { subsets, .. }) = endpoints
+        .get_opt(&name)
+        .await
+        .map_err(Error::GetEndpoints)?
+    {
         let has_ready = subsets.map_or(false, |ess| {
             ess.iter()
                 .any(|es| es.addresses.as_ref().map_or(false, |a| !a.is_empty()))
@@ -67,11 +71,11 @@ pub(super) async fn reconcile(
 
                 api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
                     .await
-                    .context(HostAnnotation)?;
+                    .map_err(Error::HostAnnotation)?;
 
                 conditions::set_available(eph, client, Some(available))
                     .await
-                    .context(UpdateCondition)?;
+                    .map_err(Error::UpdateCondition)?;
 
                 Ok(Some(Action::await_change()))
             }

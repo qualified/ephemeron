@@ -2,14 +2,14 @@ use kube::{
     api::{Patch, PatchParams},
     Api, Client, Resource, ResourceExt,
 };
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 
 use crate::{Ephemeron, EphemeronCondition, EphemeronStatus};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to update ephemeron status: {}", source))]
-    UpdateStatus { source: kube::Error },
+    #[error("failed to update ephemeron status: {0}")]
+    UpdateStatus(#[source] kube::Error),
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -47,7 +47,7 @@ async fn set_condition(
         })),
     )
     .await
-    .context(UpdateStatus)?;
+    .map_err(Error::UpdateStatus)?;
 
     Ok(())
 }

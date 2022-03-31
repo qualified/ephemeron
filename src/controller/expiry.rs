@@ -4,16 +4,16 @@ use kube::{
     runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 use tracing::debug;
 
 use super::ContextData;
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to delete ephemeron: {}", source))]
-    Delete { source: kube::Error },
+    #[error("failed to delete ephemeron: {0}")]
+    Delete(#[source] kube::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -41,7 +41,7 @@ pub(super) async fn reconcile(
         },
     )
     .await
-    .context(Delete)?;
+    .map_err(Error::Delete)?;
 
     Ok(Some(Action::await_change()))
 }

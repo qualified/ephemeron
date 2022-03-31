@@ -8,22 +8,19 @@ use kube::{
     runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 use tracing::debug;
 
-use super::{conditions, ContextData};
+use super::ContextData;
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to create ingress: {}", source))]
-    CreateIngress { source: kube::Error },
+    #[error("failed to create ingress: {0}")]
+    CreateIngress(#[source] kube::Error),
 
-    #[snafu(display("Failed to get ingress: {}", source))]
-    GetIngress { source: kube::Error },
-
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
+    #[error("failed to get ingress: {0}")]
+    GetIngress(#[source] kube::Error),
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -36,7 +33,12 @@ pub(super) async fn reconcile(
     let client = ctx.get_ref().client.clone();
 
     let ings: Api<Ingress> = Api::namespaced(client.clone(), super::NS);
-    if ings.get_opt(&name).await.context(GetIngress)?.is_some() {
+    if ings
+        .get_opt(&name)
+        .await
+        .map_err(Error::GetIngress)?
+        .is_some()
+    {
         Ok(None)
     } else {
         debug!("Creating Ingress");
@@ -49,7 +51,7 @@ pub(super) async fn reconcile(
                 Ok(Some(Action::await_change()))
             }
 
-            Err(err) => Err(Error::CreateIngress { source: err }),
+            Err(err) => Err(Error::CreateIngress(err)),
         }
     }
 }
