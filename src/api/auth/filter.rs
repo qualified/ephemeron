@@ -1,22 +1,19 @@
 use jsonwebtoken as jwt;
-use snafu::{OptionExt, ResultExt, Snafu};
+use thiserror::Error;
 use warp::{reject, Filter, Rejection};
 
 use super::{Claims, JWT_SECRET};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("missing authorization header"))]
+    #[error("missing authorization header")]
     MissingAuthHeader,
 
-    #[snafu(display("invalid authorization header"))]
-    InvalidAuthHeader { source: std::str::Utf8Error },
-
-    #[snafu(display("missing Bearer prefix"))]
+    #[error("missing Bearer prefix")]
     MissingBearerPrefix,
 
-    #[snafu(display("failed to decode token: {}", source))]
-    DecodeToken { source: jwt::errors::Error },
+    #[error("failed to decode token: {0}")]
+    DecodeToken(#[source] jwt::errors::Error),
 }
 
 impl warp::reject::Reject for Error {}
@@ -29,7 +26,7 @@ pub fn with_authorization() -> impl Filter<Extract = (Claims,), Error = Rejectio
         .and_then(|auth_header: String| async move {
             let token = match auth_header
                 .strip_prefix("Bearer ")
-                .context(MissingBearerPrefix)
+                .ok_or(Error::MissingBearerPrefix)
             {
                 Err(err) => return Err(warp::reject::custom(err)),
                 Ok(token) => token,
@@ -48,6 +45,6 @@ fn decode_jwt(token: &str) -> Result<Claims, Error> {
         &jwt::DecodingKey::from_secret(JWT_SECRET.as_bytes()),
         &jwt::Validation::default(),
     )
-    .context(DecodeToken)?;
+    .map_err(Error::DecodeToken)?;
     Ok(decoded.claims)
 }

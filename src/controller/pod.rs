@@ -5,25 +5,24 @@ use k8s_openapi::{
 use kube::{
     api::{ObjectMeta, PostParams},
     error::ErrorResponse,
+    runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use kube_runtime::controller::{Context, ReconcilerAction};
-use snafu::{ResultExt, Snafu};
-use tracing::debug;
+use thiserror::Error;
 
 use super::{conditions, ContextData};
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to create pod: {}", source))]
-    CreatePod { source: kube::Error },
+    #[error("failed to create pod: {0}")]
+    CreatePod(#[source] kube::Error),
 
-    #[snafu(display("Failed to get god: {}", source))]
-    GetPod { source: kube::Error },
+    #[error("failed to get god: {0}")]
+    GetPod(#[source] kube::Error),
 
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
+    #[error("failed to update condition: {0}")]
+    UpdateCondition(#[source] conditions::Error),
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -31,48 +30,37 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
+) -> Result<Option<Action>> {
     let name = eph.name();
     let client = ctx.get_ref().client.clone();
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), super::NS);
-    match pods.get(&name).await {
-        Ok(pod) => match (eph.is_pod_ready(), pod_is_ready(&pod)) {
+    if let Some(pod) = pods.get_opt(&name).await.map_err(Error::GetPod)? {
+        match (eph.is_pod_ready(), pod_is_ready(&pod)) {
             (a, b) if a == b => Ok(None),
             (_, actual) => {
                 conditions::set_pod_ready(eph, ctx.get_ref().client.clone(), Some(actual))
                     .await
-                    .context(UpdateCondition)?;
-                Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                }))
-            }
-        },
-
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            conditions::set_pod_ready(eph, client.clone(), Some(false))
-                .await
-                .context(UpdateCondition)?;
-            conditions::set_available(eph, client.clone(), Some(false))
-                .await
-                .context(UpdateCondition)?;
-            let pod = build_pod(eph);
-            match pods.create(&PostParams::default(), &pod).await {
-                Ok(_) => Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                })),
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Pod already exists");
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
-                Err(err) => Err(Error::CreatePod { source: err }),
+                    .map_err(Error::UpdateCondition)?;
+                Ok(Some(Action::await_change()))
             }
         }
-
-        // Unexpected error
-        Err(e) => Err(Error::GetPod { source: e }),
+    } else {
+        conditions::set_pod_ready(eph, client.clone(), Some(false))
+            .await
+            .map_err(Error::UpdateCondition)?;
+        conditions::set_available(eph, client.clone(), Some(false))
+            .await
+            .map_err(Error::UpdateCondition)?;
+        let pod = build_pod(eph);
+        match pods.create(&PostParams::default(), &pod).await {
+            Ok(_) => Ok(Some(Action::await_change())),
+            Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                tracing::debug!("Pod already exists");
+                Ok(Some(Action::await_change()))
+            }
+            Err(err) => Err(Error::CreatePod(err)),
+        }
     }
 }
 

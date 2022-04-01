@@ -3,25 +3,24 @@ use std::time::Duration;
 use k8s_openapi::api::core::v1::Endpoints;
 use kube::{
     api::{Patch, PatchParams},
-    error::ErrorResponse,
+    runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use kube_runtime::controller::{Context, ReconcilerAction};
-use snafu::{ResultExt, Snafu};
+use thiserror::Error;
 
 use super::{conditions, ContextData};
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to get endpoints: {}", source))]
-    GetEndpoints { source: kube::Error },
+    #[error("failed to get endpoints: {0}")]
+    GetEndpoints(#[source] kube::Error),
 
-    #[snafu(display("Failed to annotate host information: {}", source))]
-    HostAnnotation { source: kube::Error },
+    #[error("failed to annotate host information: {0}")]
+    HostAnnotation(#[source] kube::Error),
 
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
+    #[error("failed to update condition: {0}")]
+    UpdateCondition(#[source] conditions::Error),
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -29,65 +28,59 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
+) -> Result<Option<Action>> {
     let name = eph.name();
     let client = ctx.get_ref().client.clone();
     // Check if service has endpoints
     let endpoints: Api<Endpoints> = Api::namespaced(client.clone(), super::NS);
-    match endpoints.get(&name).await {
-        Ok(Endpoints { subsets, .. }) => {
-            let has_ready = subsets.map_or(false, |ess| {
-                ess.iter()
-                    .any(|es| es.addresses.as_ref().map_or(false, |a| !a.is_empty()))
-            });
-            match (eph.is_available(), has_ready) {
-                // Nothing to do if it's ready and the condition agrees.
-                (true, true) => Ok(None),
-                // Requeue soon if `Endpoints` exists, but not ready yet.
-                (false, false) => Ok(Some(ReconcilerAction {
-                    requeue_after: Some(Duration::from_secs(1)),
-                })),
-                // Fix outdated condition
-                (_, available) => {
-                    let api: Api<Ephemeron> = Api::all(client.clone());
-                    let patch = if available {
-                        let domain: &str = ctx.get_ref().domain.as_ref();
-                        serde_json::json!({
-                            "metadata": {
-                                "annotations": {
-                                    "host": &format!("{}.{}", &name, domain),
-                                },
+    if let Some(Endpoints { subsets, .. }) = endpoints
+        .get_opt(&name)
+        .await
+        .map_err(Error::GetEndpoints)?
+    {
+        let has_ready = subsets.map_or(false, |ess| {
+            ess.iter()
+                .any(|es| es.addresses.as_ref().map_or(false, |a| !a.is_empty()))
+        });
+        match (eph.is_available(), has_ready) {
+            // Nothing to do if it's ready and the condition agrees.
+            (true, true) => Ok(None),
+            // Requeue soon if `Endpoints` exists, but not ready yet.
+            (false, false) => Ok(Some(Action::requeue(Duration::from_secs(1)))),
+            // Fix outdated condition
+            (_, available) => {
+                let api: Api<Ephemeron> = Api::all(client.clone());
+                let patch = if available {
+                    let domain: &str = ctx.get_ref().domain.as_ref();
+                    serde_json::json!({
+                        "metadata": {
+                            "annotations": {
+                                "host": &format!("{}.{}", &name, domain),
                             },
-                        })
-                    } else {
-                        serde_json::json!({
-                            "metadata": {
-                                "annotations": {
-                                    "host": null,
-                                },
+                        },
+                    })
+                } else {
+                    serde_json::json!({
+                        "metadata": {
+                            "annotations": {
+                                "host": null,
                             },
-                        })
-                    };
+                        },
+                    })
+                };
 
-                    api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
-                        .await
-                        .context(HostAnnotation)?;
+                api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
+                    .await
+                    .map_err(Error::HostAnnotation)?;
 
-                    conditions::set_available(eph, client, Some(available))
-                        .await
-                        .context(UpdateCondition)?;
+                conditions::set_available(eph, client, Some(available))
+                    .await
+                    .map_err(Error::UpdateCondition)?;
 
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
+                Ok(Some(Action::await_change()))
             }
         }
-
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => Ok(Some(ReconcilerAction {
-            requeue_after: Some(Duration::from_secs(2)),
-        })),
-
-        Err(err) => Err(Error::GetEndpoints { source: err }),
+    } else {
+        Ok(Some(Action::requeue(Duration::from_secs(2))))
     }
 }

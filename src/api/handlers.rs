@@ -5,33 +5,33 @@ use kube::{
     api::{DeleteParams, Patch, PatchParams, PostParams, PropagationPolicy},
     Api, Client, ResourceExt,
 };
-use snafu::{OptionExt, ResultExt, Snafu};
+use thiserror::Error;
 use warp::{http::StatusCode, reply, Reply};
 
 use super::{json_error_response, json_response};
 use crate::{Ephemeron, EphemeronSpec};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub(super) enum Error {
-    #[snafu(display("preset {} not found", name))]
-    PresetLookup { name: String },
+    #[error("preset {0} not found")]
+    PresetLookup(String),
 
-    #[snafu(display("lifetime {} is invalid", lifetime))]
-    InvalidLifetime { lifetime: u32 },
+    #[error("lifetime {0} is invalid")]
+    InvalidLifetime(u32),
 
-    #[snafu(display("failed to create resource: {}", source))]
-    CreateResource { source: kube::Error },
+    #[error("failed to create resource: {0}")]
+    CreateResource(#[source] kube::Error),
 
-    #[snafu(display("failed to update resouce lifetime: {}", source))]
-    PatchLifetime { source: kube::Error },
+    #[error("failed to update resouce lifetime: {0}")]
+    PatchLifetime(#[source] kube::Error),
 
-    #[snafu(display("failed to get resource: {}", source))]
-    GetResource { source: kube::Error },
+    #[error("failed to get resource: {0}")]
+    GetResource(#[source] kube::Error),
 
-    #[snafu(display("failed to delete: {}", source))]
-    DeleteResource { source: kube::Error },
+    #[error("failed to delete: {0}")]
+    DeleteResource(#[source] kube::Error),
 
-    #[snafu(display("forbidden"))]
+    #[error("forbidden")]
     Forbidden,
 }
 
@@ -48,9 +48,9 @@ impl Reply for Error {
 
             Error::Forbidden => json_error_response("Forbidden", StatusCode::FORBIDDEN),
 
-            Error::GetResource { source }
-            | Error::CreateResource { source }
-            | Error::PatchLifetime { source } => match source {
+            Error::GetResource(source)
+            | Error::CreateResource(source)
+            | Error::PatchLifetime(source) => match source {
                 kube::Error::Api(err) => {
                     tracing::debug!("Kube Api error: {:?}", err);
                     json_error_response(
@@ -68,7 +68,7 @@ impl Reply for Error {
                 }
             },
 
-            Error::DeleteResource { source } => match source {
+            Error::DeleteResource(source) => match source {
                 kube::Error::Api(err) => StatusCode::from_u16(err.code)
                     .unwrap_or(StatusCode::BAD_REQUEST)
                     .into_response(),
@@ -127,9 +127,9 @@ pub(super) async fn create(
     presets: Arc<super::Presets>,
     client: Client,
 ) -> Result<impl Reply, Infallible> {
-    let preset = warp_try!(presets.get(&payload.preset).with_context(|| PresetLookup {
-        name: payload.preset.clone(),
-    }));
+    let preset = warp_try!(presets
+        .get(&payload.preset)
+        .ok_or_else(|| Error::PresetLookup(payload.preset.clone())));
 
     let duration = warp_try!(get_duration(payload.lifetime_minutes));
     let id = xid::new().to_string();
@@ -153,7 +153,7 @@ pub(super) async fn create(
     let eph = warp_try!(api
         .create(&PostParams::default(), &eph)
         .await
-        .context(CreateResource));
+        .map_err(Error::CreateResource));
     Ok(json_response(
         &Created {
             id,
@@ -171,7 +171,7 @@ pub(super) async fn patch(
     client: Client,
 ) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
-    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    let eph = warp_try!(api.get(&id).await.map_err(Error::GetResource));
     if !has_access(&eph, &claims.sub) {
         return Ok(Error::Forbidden.into_response());
     }
@@ -185,7 +185,7 @@ pub(super) async fn patch(
     let eph = warp_try!(api
         .patch(&id, &PatchParams::default(), &patch)
         .await
-        .context(PatchLifetime));
+        .map_err(Error::PatchLifetime));
     Ok(json_response(
         &Expiration {
             expiration_time: eph.spec.expiration_time,
@@ -201,7 +201,7 @@ pub(super) async fn get(
     client: Client,
 ) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
-    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    let eph = warp_try!(api.get(&id).await.map_err(Error::GetResource));
     if !has_access(&eph, &claims.sub) {
         return Ok(Error::Forbidden.into_response());
     }
@@ -223,7 +223,7 @@ pub(super) async fn delete(
     client: Client,
 ) -> Result<impl Reply, Infallible> {
     let api: Api<Ephemeron> = Api::all(client);
-    let eph = warp_try!(api.get(&id).await.context(GetResource));
+    let eph = warp_try!(api.get(&id).await.map_err(Error::GetResource));
     if !has_access(&eph, &claims.sub) {
         return Ok(Error::Forbidden.into_response());
     }
@@ -232,13 +232,13 @@ pub(super) async fn delete(
         propagation_policy: Some(PropagationPolicy::Background),
         ..DeleteParams::default()
     };
-    let _res = warp_try!(api.delete(&id, &dp).await.context(DeleteResource));
+    let _res = warp_try!(api.delete(&id, &dp).await.map_err(Error::DeleteResource));
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 fn get_duration(minutes: u32) -> Result<chrono::Duration, Error> {
     let duration = std::time::Duration::from_secs((minutes * 60).into());
-    chrono::Duration::from_std(duration).map_err(|_| Error::InvalidLifetime { lifetime: minutes })
+    chrono::Duration::from_std(duration).map_err(|_| Error::InvalidLifetime(minutes))
 }
 
 fn has_access(eph: &Ephemeron, sub: &str) -> bool {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use chrono::Utc;
 use futures::StreamExt;
@@ -9,10 +9,12 @@ use k8s_openapi::{
     },
     apimachinery::pkg::apis::meta::v1::OwnerReference,
 };
-use kube::{api::ListParams, Api, Client, Resource, ResourceExt};
-use kube_runtime::controller::{Context, Controller, ReconcilerAction};
-use snafu::{ResultExt, Snafu};
-use tracing::{trace, warn};
+use kube::{
+    api::ListParams,
+    runtime::controller::{Action, Context, Controller},
+    Api, Client, Resource, ResourceExt,
+};
+use thiserror::Error;
 
 use super::Ephemeron;
 mod conditions;
@@ -23,22 +25,22 @@ mod pod;
 mod service;
 
 const PROJECT_NAME: &str = "ephemeron";
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to delete expired resource: {}", source))]
-    DeleteExpired { source: expiry::Error },
+    #[error("failed to delete expired resource: {0}")]
+    DeleteExpired(#[source] expiry::Error),
 
-    #[snafu(display("Failed to reconcile pod: {}", source))]
-    ReconcilePod { source: pod::Error },
+    #[error("failed to reconcile pod: {0}")]
+    ReconcilePod(#[source] pod::Error),
 
-    #[snafu(display("Failed to reconcile service: {}", source))]
-    ReconcileService { source: service::Error },
+    #[error("failed to reconcile service: {0}")]
+    ReconcileService(#[source] service::Error),
 
-    #[snafu(display("Failed to reconcile ingress: {}", source))]
-    ReconcileIngress { source: ingress::Error },
+    #[error("failed to reconcile ingress: {0}")]
+    ReconcileIngress(#[source] ingress::Error),
 
-    #[snafu(display("Failed to reconcile endpoints: {}", source))]
-    ReconcileEndpoints { source: endpoints::Error },
+    #[error("failed to reconcile endpoints: {0}")]
+    ReconcileEndpoints(#[source] endpoints::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -60,7 +62,7 @@ pub async fn run(client: Client, domain: String) {
         .run(reconciler, error_policy, context)
         .filter_map(|x| async move { x.ok() })
         .for_each(|(_, action)| async move {
-            trace!("Reconciled: requeue after {:?}", action.requeue_after);
+            tracing::trace!("Reconciled: {:?}", action);
         })
         .await;
 }
@@ -72,60 +74,56 @@ struct ContextData {
 }
 
 #[tracing::instrument(skip(eph, ctx), level = "trace")]
-async fn reconciler(eph: Ephemeron, ctx: Context<ContextData>) -> Result<ReconcilerAction> {
+async fn reconciler(eph: Arc<Ephemeron>, ctx: Context<ContextData>) -> Result<Action> {
     if let Some(conditions) = eph.status.as_ref().map(|s| &s.conditions) {
-        trace!("conditions: {:?}", conditions);
+        tracing::trace!("conditions: {:?}", conditions);
     }
 
     if let Some(action) = expiry::reconcile(&eph, ctx.clone())
         .await
-        .context(DeleteExpired)?
+        .map_err(Error::DeleteExpired)?
     {
         return Ok(action);
     }
     if let Some(action) = pod::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcilePod)?
+        .map_err(Error::ReconcilePod)?
     {
         return Ok(action);
     }
     if let Some(action) = service::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcileService)?
+        .map_err(Error::ReconcileService)?
     {
         return Ok(action);
     }
     if let Some(action) = ingress::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcileIngress)?
+        .map_err(Error::ReconcileIngress)?
     {
         return Ok(action);
     }
     if let Some(action) = endpoints::reconcile(&eph, ctx.clone())
         .await
-        .context(ReconcileEndpoints)?
+        .map_err(Error::ReconcileEndpoints)?
     {
         return Ok(action);
     }
 
     // Nothing happened in this loop, so the resource is in the desired state.
     // Requeue around when this expires unless something else triggers reconciliation.
-    Ok(ReconcilerAction {
-        requeue_after: Some(
-            (eph.spec.expiration_time - Utc::now())
-                .to_std()
-                .unwrap_or_default(),
-        ),
-    })
+    Ok(Action::requeue(
+        (eph.spec.expiration_time - Utc::now())
+            .to_std()
+            .unwrap_or_default(),
+    ))
 }
 
 #[allow(clippy::needless_pass_by_value)]
 /// An error handler called when the reconciler fails.
-fn error_policy(error: &Error, _ctx: Context<ContextData>) -> ReconcilerAction {
-    warn!("reconciler failed: {}", error);
-    ReconcilerAction {
-        requeue_after: None,
-    }
+fn error_policy(error: &Error, _ctx: Context<ContextData>) -> Action {
+    tracing::warn!("reconciler failed: {}", error);
+    Action::await_change()
 }
 
 fn make_common_labels(name: &str) -> BTreeMap<String, String> {

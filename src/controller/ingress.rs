@@ -5,25 +5,21 @@ use k8s_openapi::api::networking::v1::{
 use kube::{
     api::{ObjectMeta, PostParams},
     error::ErrorResponse,
+    runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use kube_runtime::controller::{Context, ReconcilerAction};
-use snafu::Snafu;
-use tracing::debug;
+use thiserror::Error;
 
-use super::{conditions, ContextData};
+use super::ContextData;
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to create ingress: {}", source))]
-    CreateIngress { source: kube::Error },
+    #[error("failed to create ingress: {0}")]
+    CreateIngress(#[source] kube::Error),
 
-    #[snafu(display("Failed to get ingress: {}", source))]
-    GetIngress { source: kube::Error },
-
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
+    #[error("failed to get ingress: {0}")]
+    GetIngress(#[source] kube::Error),
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -31,35 +27,31 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
+) -> Result<Option<Action>> {
     let name = eph.name();
     let client = ctx.get_ref().client.clone();
 
     let ings: Api<Ingress> = Api::namespaced(client.clone(), super::NS);
-    match ings.get(&name).await {
-        Ok(_) => Ok(None),
+    if ings
+        .get_opt(&name)
+        .await
+        .map_err(Error::GetIngress)?
+        .is_some()
+    {
+        Ok(None)
+    } else {
+        tracing::debug!("Creating Ingress");
+        let ing = build_ingress(eph, ctx.get_ref().domain.as_ref());
+        match ings.create(&PostParams::default(), &ing).await {
+            Ok(_) => Ok(Some(Action::await_change())),
 
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            debug!("Creating Ingress");
-            let ing = build_ingress(eph, ctx.get_ref().domain.as_ref());
-            match ings.create(&PostParams::default(), &ing).await {
-                Ok(_) => Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                })),
-
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Ingress already exists");
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
-
-                Err(err) => Err(Error::CreateIngress { source: err }),
+            Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                tracing::debug!("Ingress already exists");
+                Ok(Some(Action::await_change()))
             }
-        }
 
-        // Unexpected error
-        Err(e) => Err(Error::GetIngress { source: e }),
+            Err(err) => Err(Error::CreateIngress(err)),
+        }
     }
 }
 

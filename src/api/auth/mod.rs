@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, convert::Infallible, sync::Arc};
 
 use jsonwebtoken as jwt;
 use once_cell::sync::Lazy;
-use snafu::{OptionExt, ResultExt, Snafu};
+use thiserror::Error;
 use warp::{http::StatusCode, Reply};
 
 use super::{json_error_response, json_response};
@@ -17,22 +17,22 @@ pub type Apps = BTreeMap<String, String>;
 static JWT_SECRET: Lazy<String> =
     Lazy::new(|| std::env::var("JWT_SECRET").expect("JWT_SECRET is set"));
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("unknown app"))]
+    #[error("unknown app")]
     AppLookup,
 
-    #[snafu(display("invalid key"))]
+    #[error("invalid key")]
     InvalidKey,
 
-    #[snafu(display("invalid uid"))]
+    #[error("invalid uid")]
     InvalidUserId,
 
-    #[snafu(display("invalid gid"))]
+    #[error("invalid gid")]
     InvalidGroupId,
 
-    #[snafu(display("failed to create token: {}", source))]
-    CreateToken { source: jwt::errors::Error },
+    #[error("failed to create token: {0}")]
+    CreateToken(#[source] jwt::errors::Error),
 }
 
 impl warp::Reply for Error {
@@ -93,7 +93,7 @@ pub struct TokenResponse {
 // Use this token to make requests to create and update resources.
 #[allow(clippy::unused_async)]
 pub async fn token(apps: Arc<Apps>, request: TokenRequest) -> Result<impl Reply, Infallible> {
-    let key = match apps.get(&request.app).context(AppLookup) {
+    let key = match apps.get(&request.app).ok_or(Error::AppLookup) {
         Err(err) => return Ok(err.into_response()),
         Ok(key) => key,
     };
@@ -139,5 +139,5 @@ fn create_jwt(sub: String, gid: Option<String>) -> Result<String, Error> {
         &Claims { sub, exp, gid },
         &jwt::EncodingKey::from_secret(JWT_SECRET.as_bytes()),
     )
-    .context(CreateToken)
+    .map_err(Error::CreateToken)
 }

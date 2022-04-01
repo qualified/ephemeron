@@ -7,25 +7,21 @@ use k8s_openapi::{
 use kube::{
     api::{ObjectMeta, PostParams},
     error::ErrorResponse,
+    runtime::controller::{Action, Context},
     Api, ResourceExt,
 };
-use kube_runtime::controller::{Context, ReconcilerAction};
-use snafu::Snafu;
-use tracing::debug;
+use thiserror::Error;
 
-use super::{conditions, ContextData};
+use super::ContextData;
 use crate::Ephemeron;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Failed to create service: {}", source))]
-    CreateService { source: kube::Error },
+    #[error("failed to create service: {0}")]
+    CreateService(#[source] kube::Error),
 
-    #[snafu(display("Failed to get service: {}", source))]
-    GetService { source: kube::Error },
-
-    #[snafu(display("Failed to update condition: {}", source))]
-    UpdateCondition { source: conditions::Error },
+    #[error("failed to get service: {0}")]
+    GetService(#[source] kube::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -34,32 +30,29 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub(super) async fn reconcile(
     eph: &Ephemeron,
     ctx: Context<ContextData>,
-) -> Result<Option<ReconcilerAction>> {
+) -> Result<Option<Action>> {
     let name = eph.name();
     let client = ctx.get_ref().client.clone();
 
     let svcs: Api<Service> = Api::namespaced(client.clone(), super::NS);
-    match svcs.get(&name).await {
-        Ok(_) => Ok(None),
-        Err(kube::Error::Api(ErrorResponse { code: 404, .. })) => {
-            debug!("Creating Service");
-            let svc = build_service(eph);
-            match svcs.create(&PostParams::default(), &svc).await {
-                Ok(_) => Ok(Some(ReconcilerAction {
-                    requeue_after: None,
-                })),
-                Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
-                    debug!("Service already exists");
-                    Ok(Some(ReconcilerAction {
-                        requeue_after: None,
-                    }))
-                }
-                Err(err) => Err(Error::CreateService { source: err }),
+    if svcs
+        .get_opt(&name)
+        .await
+        .map_err(Error::GetService)?
+        .is_some()
+    {
+        Ok(None)
+    } else {
+        tracing::debug!("Creating Service");
+        let svc = build_service(eph);
+        match svcs.create(&PostParams::default(), &svc).await {
+            Ok(_) => Ok(Some(Action::await_change())),
+            Err(kube::Error::Api(ErrorResponse { code: 409, .. })) => {
+                tracing::debug!("Service already exists");
+                Ok(Some(Action::await_change()))
             }
+            Err(err) => Err(Error::CreateService(err)),
         }
-
-        // Unexpected error
-        Err(e) => Err(Error::GetService { source: e }),
     }
 }
 
