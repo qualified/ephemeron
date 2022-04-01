@@ -50,6 +50,7 @@ const NS: &str = "default";
 
 pub async fn run(client: Client, domain: String) {
     let context = Context::new(ContextData {
+        http_client: hyper::Client::new(),
         client: client.clone(),
         domain,
     });
@@ -71,6 +72,9 @@ pub async fn run(client: Client, domain: String) {
 struct ContextData {
     client: Client,
     domain: String,
+    // Used to make GET request to `http://{host}/{probe-path}` to make sure the service is usable from outside.
+    // I couldn't find a better way.
+    http_client: hyper::Client<hyper::client::HttpConnector>,
 }
 
 #[tracing::instrument(skip(eph, ctx), level = "trace")]

@@ -49,31 +49,57 @@ pub(super) async fn reconcile(
             (false, false) => Ok(Some(Action::requeue(Duration::from_secs(1)))),
             // Fix outdated condition
             (_, available) => {
-                let api: Api<Ephemeron> = Api::all(client.clone());
-                let patch = if available {
+                let host = if available {
+                    // HACK Make sure the service is available from outside.
+                    // The address is marked as ready to be utilized, but that doesn't mean it's usable from outside.
                     let domain: &str = ctx.get_ref().domain.as_ref();
-                    serde_json::json!({
-                        "metadata": {
-                            "annotations": {
-                                "host": &format!("{}.{}", &name, domain),
-                            },
-                        },
-                    })
+                    let host = format!("{}.{}", &name, domain);
+                    if let Some(probe) = eph.spec.service.readiness_probe.as_ref() {
+                        let uri = hyper::Uri::builder()
+                            .scheme("http")
+                            .authority(host.clone())
+                            .path_and_query(probe.path.clone())
+                            .build()
+                            .expect("valid uri from host");
+                        tracing::debug!("testing if {} is available", uri);
+                        let http_client = ctx.get_ref().http_client.clone();
+                        match http_client.get(uri).await {
+                            Ok(res) if res.status() == hyper::StatusCode::OK => {
+                                tracing::debug!("the service is available");
+                                Some(host)
+                            }
+                            Ok(res) => {
+                                tracing::debug!(
+                                    "the service is not available yet {}",
+                                    res.status()
+                                );
+                                // Try again after 1s, or the next cycle.
+                                return Ok(Some(Action::requeue(Duration::from_secs(1))));
+                            }
+                            Err(err) => {
+                                tracing::warn!("failed to check availability {}", err);
+                                None
+                            }
+                        }
+                    } else {
+                        Some(host)
+                    }
                 } else {
-                    serde_json::json!({
-                        "metadata": {
-                            "annotations": {
-                                "host": null,
-                            },
-                        },
-                    })
+                    None
                 };
 
-                api.patch(&name, &PatchParams::default(), &Patch::Merge(patch))
-                    .await
-                    .map_err(Error::HostAnnotation)?;
+                let api: Api<Ephemeron> = Api::all(client.clone());
+                api.patch(
+                    &name,
+                    &PatchParams::default(),
+                    &Patch::Merge(serde_json::json!({
+                        "metadata": { "annotations": { "host": host } },
+                    })),
+                )
+                .await
+                .map_err(Error::HostAnnotation)?;
 
-                conditions::set_available(eph, client, Some(available))
+                conditions::set_available(eph, client, Some(host.is_some()))
                     .await
                     .map_err(Error::UpdateCondition)?;
 
