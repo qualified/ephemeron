@@ -44,13 +44,16 @@ pub enum Error {
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type HttpClient = hyper::Client<hyper_openssl::HttpsConnector<hyper::client::HttpConnector>>;
 
 // TODO Configurable
 const NS: &str = "default";
 
 pub async fn run(client: Client, domain: String) {
+    let https = hyper_openssl::HttpsConnector::new().expect("https connector");
+    let http_client = hyper::Client::builder().build::<_, hyper::Body>(https);
     let context = Context::new(ContextData {
-        http_client: hyper::Client::new(),
+        http_client,
         client: client.clone(),
         domain,
     });
@@ -72,9 +75,9 @@ pub async fn run(client: Client, domain: String) {
 struct ContextData {
     client: Client,
     domain: String,
-    // Used to make GET request to `http://{host}/{probe-path}` to make sure the service is usable from outside.
+    // Used to make GET request to `https://{host}/{probe-path}` to make sure the service is usable from outside.
     // I couldn't find a better way.
-    http_client: hyper::Client<hyper::client::HttpConnector>,
+    http_client: HttpClient,
 }
 
 #[tracing::instrument(skip(eph, ctx), level = "trace")]

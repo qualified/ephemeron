@@ -138,6 +138,10 @@ impl Ephemeron {
             .as_ref()
             .and_then(|s| s.conditions.iter().find(|&c| f(c)))
     }
+
+    pub(crate) fn has_tls(&self) -> bool {
+        self.spec.service.tls_secret_name.is_some()
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, JsonSchema)]

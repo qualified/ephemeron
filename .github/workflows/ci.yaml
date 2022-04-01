@@ -33,6 +33,7 @@ jobs:
       - uses: nolar/setup-k3d-k3s@v1
         with:
           version: v1.20
+          k3d-name: dev
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: cargo build
         uses: actions-rs/cargo@v1

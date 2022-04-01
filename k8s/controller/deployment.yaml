@@ -22,8 +22,8 @@ spec:
         - name: ephemeron-controller
           image: "${IMAGE}"
           env:
-            - name: EPHEMERON_DOMAIN
-              value: "${DOMAIN}"
+            - { name: EPHEMERON_DOMAIN, value: "${DOMAIN}" }
+            - { name: "RUST_LOG", value: "info,kube=debug,ephemeron=trace" }
           resources:
             # Adjust these as needed
             limits:
