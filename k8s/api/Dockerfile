@@ -18,7 +18,6 @@ COPY --from=api-cacher /root/.cargo /root/.cargo
 RUN cargo build --bin api --release --target x86_64-unknown-linux-musl
 
 
-FROM scratch
-COPY --from=api-builder /volume/target/x86_64-unknown-linux-musl/release/api /api
-USER 1000
-ENTRYPOINT ["/api"]
+FROM gcr.io/distroless/static:nonroot
+COPY --from=api-builder --chown=nonroot:nonroot /volume/target/x86_64-unknown-linux-musl/release/api /app/api
+ENTRYPOINT ["/app/api"]
