@@ -1,5 +1,23 @@
 # Use envsubst to set IMAGE and HOST
 ---
+apiVersion: "v1"
+kind: "ConfigMap"
+metadata:
+  name: "ephemeron-api-config"
+data:
+  "config.yml": |
+    presets:
+      nginx:
+        image: "nginx"
+        port: 80
+        readinessProbe:
+          path: /
+
+    # Allowed apps
+    apps:
+      example: apikey
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,6 +39,10 @@ spec:
       containers:
         - name: ephemeron-api
           image: "${IMAGE}"
+          env:
+            - { name: "RUST_LOG", value: "info,ephemeron=trace" }
+            - { name: "EPHEMERON_CONFIG", value: "config/config.yml" }
+            - { name: "JWT_SECRET", value: "${JWT_SECRET}" }
           ports:
             - containerPort: 3030
           resources:
@@ -31,6 +53,11 @@ spec:
             requests:
               cpu: 50m
               memory: 50Mi
+          volumeMounts:
+            - { name: "config", mountPath: "/config", readOnly: true }
+      volumes:
+        - name: "config"
+          configMap: { name: "ephemeron-api-config" }
 
 ---
 apiVersion: v1

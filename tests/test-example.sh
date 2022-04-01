@@ -6,11 +6,19 @@ _term() {
   if kubectl get ephemeron/example 2>/dev/null; then
     kubectl delete -f k8s/example.yaml
   fi
-  kill -TERM "$controller" 2>/dev/null
+  if [[ -v controller ]]; then
+    kill -TERM "$controller" 2>/dev/null
+  fi
   echo "::endgroup::"
 }
 
 trap _term SIGTERM TERM EXIT
+
+if [[ "$(kubectl config current-context)" != "k3d-dev" ]]; then
+  echo "the current context must be named k3d-dev for safety"
+  echo "create a cluster with k3d cluster create dev"
+  exit 1;
+fi
 
 echo "::group::Add CRD and wait until accepted"
 kubectl apply -f k8s/ephemerons.yaml

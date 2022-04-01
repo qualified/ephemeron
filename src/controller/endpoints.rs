@@ -56,7 +56,7 @@ pub(super) async fn reconcile(
                     let host = format!("{}.{}", &name, domain);
                     if let Some(probe) = eph.spec.service.readiness_probe.as_ref() {
                         let uri = hyper::Uri::builder()
-                            .scheme("http")
+                            .scheme(if eph.has_tls() { "https" } else { "http" })
                             .authority(host.clone())
                             .path_and_query(probe.path.clone())
                             .build()

@@ -183,14 +183,14 @@ k3d cluster create dev --registry-use k3d-dev.localhost:$PORT
 ```
 
 ```bash
-docker buildx build --tag qualified/ephemeron-controller:latest --file ./k8s/controller/Dockerfile .
-docker tag qualified/ephemeron-controller:latest k3d-dev.localhost:$PORT/ephemeron-controller:latest
+docker buildx build --tag ghcr.io/qualified/ephemeron-controller:latest --file ./k8s/controller/Dockerfile .
+docker tag ghcr.io/qualified/ephemeron-controller:latest k3d-dev.localhost:$PORT/ephemeron-controller:latest
 docker push k3d-dev.localhost:$PORT/ephemeron-controller:latest
 ```
 
 ```bash
-docker buildx build --tag qualified/ephemeron-api:latest --file ./k8s/api/Dockerfile .
-docker tag qualified/ephemeron-api:latest k3d-dev.localhost:$PORT/ephemeron-api:latest
+docker buildx build --tag ghcr.io/qualified/ephemeron-api:latest --file ./k8s/api/Dockerfile .
+docker tag ghcr.io/qualified/ephemeron-api:latest k3d-dev.localhost:$PORT/ephemeron-api:latest
 docker push k3d-dev.localhost:$PORT/ephemeron-api:latest
 ```
 #### Create Service Accounts
@@ -204,12 +204,13 @@ kubectl apply -f k8s/api/sa.yaml
 
 ```bash
 LB_IP="$(kubectl get svc -o=jsonpath='{.status.loadBalancer.ingress[0].ip}' -n kube-system traefik)"
-export DOMAIN="LB_IP.sslip.io"
+export DOMAIN="$LB_IP.sslip.io"
 export IMAGE=k3d-dev.localhost:$PORT/ephemeron-controller:latest
 envsubst < k8s/controller/deployment.yaml | kubectl apply -f -
 
 export IMAGE=k3d-dev.localhost:$PORT/ephemeron-api:latest
 export HOST="api.$DOMAIN"
+export JWT_SECRET=$(echo $RANDOM | md5sum | head -c 10)
 envsubst < k8s/api/deployment.yaml | kubectl apply -f -
 ```
 
