@@ -41,7 +41,7 @@ spec:
           image: "${IMAGE}"
           env:
             - { name: "RUST_LOG", value: "info,ephemeron=trace" }
-            - { name: "EPHEMERON_CONFIG", value: "config/config.yml" }
+            - { name: "EPHEMERON_CONFIG", value: "/app/config/config.yml" }
             - { name: "JWT_SECRET", value: "${JWT_SECRET}" }
           ports:
             - containerPort: 3030
@@ -54,7 +54,7 @@ spec:
               cpu: 50m
               memory: 50Mi
           volumeMounts:
-            - { name: "config", mountPath: "/config", readOnly: true }
+            - { name: "config", mountPath: "/app/config", readOnly: true }
       volumes:
         - name: "config"
           configMap: { name: "ephemeron-api-config" }

@@ -17,7 +17,7 @@ COPY --from=cacher /root/.cargo /root/.cargo
 RUN cargo build --bin run --release --target x86_64-unknown-linux-musl
 
 
-FROM scratch
-COPY --from=builder /volume/target/x86_64-unknown-linux-musl/release/run /run
-USER 1000
-ENTRYPOINT ["/run"]
+# Need cacerts
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder --chown=nonroot:nonroot /volume/target/x86_64-unknown-linux-musl/release/run /app/run
+ENTRYPOINT ["/app/run"]
